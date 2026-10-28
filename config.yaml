@@ -1,0 +1,39 @@
+# ============================================
+# إعدادات أداة إنشاء فيديوهات أسعار الذهب (Shorts)
+# Gold Price Shorts Configuration
+# ============================================
+
+# --- مصادر البيانات الحية ---
+data_sources:
+  turkey_gold_url: "https://turkeygoldprice.com/"
+
+# --- إعدادات الفيديو ---
+video:
+  width: 1080
+  height: 1920
+  fps: 30
+  duration: 15
+  crf: 20
+
+# --- إعدادات الصوت المختارة ---
+audio:
+  selected_track: "Option_1_Deep_Mechanical_Thock.wav"
+
+# --- عملة الأونصة ---
+# "USD" (الدولار الأمريكي $ - الموصى به لسوق الأونصة العالمي)
+ounce_currency: "USD"
+
+# --- النشر التلقائي على YouTube Shorts ---
+youtube:
+  auto_upload: true
+  # حالة الخصوصية: "public" (علني فوراً)، "unlisted" (غير مدرج للمعاينة)، أو "private" (خاص)
+  privacy_status: "public"
+  title_template: "أسعار الذهب اليوم في تركيا {date} ₺ #shorts #gold"
+
+# --- النشر التلقائي على Facebook Reels ---
+facebook:
+  auto_upload: true
+
+# --- النشر التلقائي على TikTok ---
+tiktok:
+  auto_upload: true
