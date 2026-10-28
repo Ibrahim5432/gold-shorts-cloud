@@ -1,0 +1,89 @@
+name: Daily Gold Shorts Cloud Publisher (Turkey & Syria)
+
+on:
+  schedule:
+    # 12:00 ظهراً بتوقيت تركيا وسوريا (09:00 UTC)
+    - cron: '0 9 * * *'
+    # 01:00 ظهراً بتوقيت تركيا وسوريا (10:00 UTC)
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+    inputs:
+      country:
+        description: 'اختر الفيديو المراد نشره الآن (turkey / syria / both)'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - turkey
+          - syria
+
+jobs:
+  publish_gold_shorts:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set Timezone to UTC+3 (Turkey/Syria)
+        shell: pwsh
+        run: |
+          tzutil /s "Turkey Standard Time"
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 pillow arabic-reshaper python-bidi pyyaml google-api-python-client google-auth-oauthlib google-auth-httplib2 playwright
+          playwright install chromium
+
+      - name: Restore Encrypted Credentials & Browser Sessions
+        shell: pwsh
+        env:
+          CLIENT_SECRETS_B64: ${{ secrets.CLIENT_SECRETS_B64 }}
+          YOUTUBE_TOKEN_B64: ${{ secrets.YOUTUBE_TOKEN_B64 }}
+          CLOUD_AUTH_STATE_B64: ${{ secrets.CLOUD_AUTH_STATE_B64 }}
+        run: |
+          if ($env:CLIENT_SECRETS_B64) {
+            [IO.File]::WriteAllBytes("client_secrets.json", [Convert]::FromBase64String($env:CLIENT_SECRETS_B64))
+          }
+          if ($env:YOUTUBE_TOKEN_B64) {
+            [IO.File]::WriteAllBytes("youtube_token.json", [Convert]::FromBase64String($env:YOUTUBE_TOKEN_B64))
+          }
+          if ($env:CLOUD_AUTH_STATE_B64) {
+            [IO.File]::WriteAllBytes("cloud_auth_state.json", [Convert]::FromBase64String($env:CLOUD_AUTH_STATE_B64))
+          }
+
+      - name: Execute Daily Gold Video Generation & Multi-Platform Upload
+        shell: pwsh
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          SCHEDULE_CRON: ${{ github.event.schedule }}
+          MANUAL_COUNTRY: ${{ github.event.inputs.country }}
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch") {
+            if ($env:MANUAL_COUNTRY -eq "turkey" -or $env:MANUAL_COUNTRY -eq "both") {
+              Write-Host "🇹🇷 Running Turkey Gold Shorts..."
+              python make_gold_short.py
+            }
+            if ($env:MANUAL_COUNTRY -eq "syria" -or $env:MANUAL_COUNTRY -eq "both") {
+              Write-Host "🇸🇾 Running Syria Gold Shorts..."
+              python make_syria_gold_short.py
+            }
+          } elseif ($env:SCHEDULE_CRON -eq "0 9 * * *") {
+            Write-Host "🇹🇷 Scheduled 12:00 PM Turkey Gold Shorts..."
+            python make_gold_short.py
+          } elseif ($env:SCHEDULE_CRON -eq "0 10 * * *") {
+            Write-Host "🇸🇾 Scheduled 01:00 PM Syria Gold Shorts..."
+            python make_syria_gold_short.py
+          } else {
+            python make_gold_short.py
+            python make_syria_gold_short.py
+          }
