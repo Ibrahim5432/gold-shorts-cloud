@@ -20,6 +20,7 @@ on:
           - both
           - turkey
           - syria
+          - check
 
 permissions:
   contents: write
@@ -73,7 +74,10 @@ jobs:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           MANUAL_COUNTRY: ${{ github.event.inputs.country }}
         run: |
-          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and $env:MANUAL_COUNTRY -ne "auto") {
+          if ($env:MANUAL_COUNTRY -eq "check") {
+            Write-Host "🔍 Cloud login verification (no publishing)..."
+            python cloud_check.py
+          } elseif ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and $env:MANUAL_COUNTRY -ne "auto") {
             if ($env:MANUAL_COUNTRY -eq "turkey" -or $env:MANUAL_COUNTRY -eq "both") {
               Write-Host "🇹🇷 Running Turkey Gold Shorts..."
               python make_gold_short.py
@@ -86,6 +90,16 @@ jobs:
             Write-Host "🤖 Running Smart Daily Orchestrator (run_all_daily.py)..."
             python run_all_daily.py
           }
+
+      - name: Upload Proof Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof
+          path: |
+            proof/
+            temp/*.png
+          if-no-files-found: ignore
 
       - name: Save Published History to Cloud Repository
         if: always()
