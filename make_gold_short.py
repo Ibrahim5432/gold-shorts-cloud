@@ -350,7 +350,11 @@ class VideoAssembler:
         local_ffmpeg = SCRIPT_DIR / "ffmpeg.exe"
         if local_ffmpeg.exists():
             return str(local_ffmpeg)
-        return "ffmpeg"
+        try:
+            import imageio_ffmpeg
+            return imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            return "ffmpeg"
 
     def assemble_ultra_light(self, frame_gen, prices: dict, total_frames: int, audio_path: Path, output_path: Path) -> Path:
         """
