@@ -25,6 +25,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: gold-shorts-publisher
+  cancel-in-progress: false
+
 jobs:
   publish_gold_shorts:
     runs-on: windows-latest
