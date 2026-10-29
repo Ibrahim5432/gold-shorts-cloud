@@ -2,26 +2,32 @@ name: Daily Gold Shorts Cloud Publisher (Turkey & Syria)
 
 on:
   schedule:
-    # 12:00 ظهراً بتوقيت تركيا وسوريا (09:00 UTC)
-    - cron: '0 9 * * *'
-    # 01:00 ظهراً بتوقيت تركيا وسوريا (10:00 UTC)
-    - cron: '0 10 * * *'
+    # 12:02 ظهراً + نبضة تأكيد 12:18 ظهراً بتوقيت تركيا وسوريا (لتفادي ازدحام رأس الساعة في GitHub)
+    - cron: '2 9 * * *'
+    - cron: '18 9 * * *'
+    # 01:02 ظهراً + نبضة تأكيد 01:18 ظهراً بتوقيت تركيا وسوريا
+    - cron: '2 10 * * *'
+    - cron: '18 10 * * *'
   workflow_dispatch:
     inputs:
       country:
-        description: 'اختر الفيديو المراد نشره الآن (turkey / syria / both)'
+        description: 'اختر الفيديو المراد نشره الآن (auto / turkey / syria / both)'
         required: true
-        default: 'both'
+        default: 'auto'
         type: choice
         options:
+          - auto
           - both
           - turkey
           - syria
 
+permissions:
+  contents: write
+
 jobs:
   publish_gold_shorts:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout Repository
@@ -65,10 +71,9 @@ jobs:
         shell: pwsh
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
-          SCHEDULE_CRON: ${{ github.event.schedule }}
           MANUAL_COUNTRY: ${{ github.event.inputs.country }}
         run: |
-          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch") {
+          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and $env:MANUAL_COUNTRY -ne "auto") {
             if ($env:MANUAL_COUNTRY -eq "turkey" -or $env:MANUAL_COUNTRY -eq "both") {
               Write-Host "🇹🇷 Running Turkey Gold Shorts..."
               python make_gold_short.py
@@ -77,13 +82,18 @@ jobs:
               Write-Host "🇸🇾 Running Syria Gold Shorts..."
               python make_syria_gold_short.py
             }
-          } elseif ($env:SCHEDULE_CRON -eq "0 9 * * *") {
-            Write-Host "🇹🇷 Scheduled 12:00 PM Turkey Gold Shorts..."
-            python make_gold_short.py
-          } elseif ($env:SCHEDULE_CRON -eq "0 10 * * *") {
-            Write-Host "🇸🇾 Scheduled 01:00 PM Syria Gold Shorts..."
-            python make_syria_gold_short.py
           } else {
-            python make_gold_short.py
-            python make_syria_gold_short.py
+            Write-Host "🤖 Running Smart Daily Orchestrator (run_all_daily.py)..."
+            python run_all_daily.py
+          }
+
+      - name: Save Published History to Cloud Repository
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path "published_history.json") {
+            git config user.name "GoldCloudBot"
+            git config user.email "bot@users.noreply.github.com"
+            git add published_history.json
+            git diff --staged --quiet || (git commit -m "Update daily published_history.json" && git push)
           }
