@@ -333,7 +333,9 @@ class TikTokUploader:
         if not video_path.exists():
             raise FileNotFoundError(f"ملف الفيديو غير موجود: {video_path}")
 
-        if not self.profile_dir.exists() or not any(self.profile_dir.iterdir()):
+        has_profile = self.profile_dir.exists() and any(self.profile_dir.iterdir())
+        has_cloud_state = (self.project_dir / "cloud_auth_state.json").exists()
+        if not has_profile and not has_cloud_state:
             logger.warning("⚠️ لم يتم تسجيل الدخول بعد.")
             return None
 
