@@ -118,7 +118,10 @@ class GoldPriceFetcher:
             resp = self.session.get(url, timeout=20)
             resp.raise_for_status()
             resp.encoding = "utf-8"
-            soup = BeautifulSoup(resp.text, "lxml")
+            try:
+                soup = BeautifulSoup(resp.text, "lxml")
+            except Exception:
+                soup = BeautifulSoup(resp.text, "html.parser")
 
             # 1. البحث عن سعر الأونصة بالدولار من العنوان الرئيسي
             page_text = soup.get_text()
