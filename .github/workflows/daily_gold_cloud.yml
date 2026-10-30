@@ -2,12 +2,9 @@ name: Daily Gold Shorts Cloud Publisher (Turkey & Syria)
 
 on:
   schedule:
-    # 12:02 ظهراً + نبضة تأكيد 12:18 ظهراً بتوقيت تركيا وسوريا (لتفادي ازدحام رأس الساعة في GitHub)
-    - cron: '2 9 * * *'
-    - cron: '18 9 * * *'
-    # 01:02 ظهراً + نبضة تأكيد 01:18 ظهراً بتوقيت تركيا وسوريا
-    - cron: '2 10 * * *'
-    - cron: '18 10 * * *'
+    # نبضات متقاربة كل 5 دقائق من 12:00 ظهراً حتى 03:55 عصراً بتوقيت تركيا وسوريا (09:00 - 12:55 UTC)
+    # للقضاء نهائياً على أي تأخير من مؤقت GitHub الداخلي (مع فحص ذكي فوري يتجاوز التشغيل خلال ثانية واحدة إذا تم النشر)
+    - cron: '*/5 9-12 * * *'
   workflow_dispatch:
     inputs:
       country:
@@ -43,19 +40,57 @@ jobs:
         run: |
           tzutil /s "Turkey Standard Time"
 
+      - name: Check if Publishing is Needed
+        id: check_needed
+        shell: pwsh
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          MANUAL_COUNTRY: ${{ github.event.inputs.country }}
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and $env:MANUAL_COUNTRY -ne "auto") {
+            "should_run=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+          $now = Get-Date
+          $today = $now.ToString("yyyy-MM-dd")
+          $hour = $now.Hour
+          $trDone = $false
+          $syDone = $false
+          if (Test-Path "published_history.json") {
+            try {
+              $hist = Get-Content "published_history.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+              if ($hist.PSObject.Properties.Name -contains $today) {
+                $trDone = [bool]$hist.$today.turkey
+                $syDone = [bool]$hist.$today.syria
+              }
+            } catch {}
+          }
+          $needTr = ($hour -ge 12) -and (-not $trDone)
+          $needSy = ($hour -ge 13) -and (-not $syDone)
+          if ($needTr -or $needSy) {
+            Write-Host "✅ Publishing needed: Turkey=$needTr, Syria=$needSy"
+            "should_run=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            Write-Host "⏭️ Already published for current window ($today Hour=$hour, TR=$trDone, SY=$syDone). Skipping."
+            "should_run=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+
       - name: Setup Python 3.12
+        if: steps.check_needed.outputs.should_run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install Dependencies
+        if: steps.check_needed.outputs.should_run == 'true'
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install numpy imageio-ffmpeg requests beautifulsoup4 pillow arabic-reshaper python-bidi pyyaml google-api-python-client google-auth-oauthlib google-auth-httplib2 playwright
+          pip install numpy lxml imageio-ffmpeg requests beautifulsoup4 pillow arabic-reshaper python-bidi pyyaml google-api-python-client google-auth-oauthlib google-auth-httplib2 playwright
           playwright install chromium
 
       - name: Restore Encrypted Credentials & Browser Sessions
+        if: steps.check_needed.outputs.should_run == 'true'
         shell: pwsh
         env:
           CLIENT_SECRETS_B64: ${{ secrets.CLIENT_SECRETS_B64 }}
@@ -73,6 +108,7 @@ jobs:
           }
 
       - name: Execute Daily Gold Video Generation & Multi-Platform Upload
+        if: steps.check_needed.outputs.should_run == 'true'
         shell: pwsh
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
