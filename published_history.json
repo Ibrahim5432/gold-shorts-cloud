@@ -32,5 +32,11 @@
     "syria": true,
     "turkey_time": "18:48:38",
     "syria_time": "18:50:41"
+  },
+  "2026-10-31": {
+    "turkey": true,
+    "syria": true,
+    "turkey_time": "13:09:30",
+    "syria_time": "13:11:35"
   }
 }
