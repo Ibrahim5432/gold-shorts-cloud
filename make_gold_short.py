@@ -195,7 +195,7 @@ class AudioManager:
         self.config = config
 
     def get_audio_path(self, duration_sec: float, temp_dir: Path) -> Path:
-        preferred_track_name = self.config.get("audio", {}).get("selected_track", "Option_Islamic_2_Deep_Ahat.mp3")
+        preferred_track_name = self.config.get("audio", {}).get("selected_track", "Option_Nasheed_With_Mizhar_Duff.mp3")
         preferred_path = self.custom_dir / preferred_track_name
 
         if preferred_path.exists():
