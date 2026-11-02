@@ -47,7 +47,8 @@
   },
   "2026-11-02": {
     "turkey": true,
-    "syria": false,
-    "turkey_time": "12:04:00"
+    "syria": true,
+    "turkey_time": "12:04:00",
+    "syria_time": "13:04:15"
   }
 }
