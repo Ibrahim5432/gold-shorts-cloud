@@ -340,8 +340,14 @@ class SyriaGoldShortsEngine:
         tt_cfg = self.config.get("tiktok", {})
         if tt_cfg.get("auto_upload", False):
             try:
+                tt_video_path = video_path
+                tt_audio = self.audio_mgr.get_tiktok_audio_path()
+                if tt_audio:
+                    tt_out = video_path.with_name(f"{video_path.stem}_tiktok.mp4")
+                    tt_video_path = self.assembler.replace_audio(video_path, tt_audio, tt_out)
+                    logger.info(f"🎵 تم دمج أنشودة تيك توك الخاصة ({tt_audio.name}) في: {tt_video_path.name}")
                 tt_uploader = TikTokUploader(SCRIPT_DIR)
-                tt_url = tt_uploader.upload_video(video_path, description=social_desc)
+                tt_url = tt_uploader.upload_video(tt_video_path, description=social_desc)
                 if tt_url:
                     logger.info(f"✅ تم نشر فيديو سوريا تلقائياً على TikTok: {tt_url}")
             except Exception as e:
