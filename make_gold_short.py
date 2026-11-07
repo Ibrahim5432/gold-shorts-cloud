@@ -220,6 +220,15 @@ class AudioManager:
 
         return silent_wav
 
+    def get_tiktok_audio_path(self) -> Path | None:
+        tt_track_name = self.config.get("audio", {}).get("tiktok_track")
+        if not tt_track_name:
+            return None
+        tt_path = self.custom_dir / tt_track_name
+        if tt_path.exists():
+            return tt_path
+        return None
+
 
 # ============================================
 # رسم وتصميم الإطارات
@@ -469,6 +478,26 @@ class VideoAssembler:
         temp_video.unlink(missing_ok=True)
         return output_path
 
+    def replace_audio(self, video_path: Path, audio_path: Path, output_path: Path) -> Path:
+        """تبديل المسار الصوتي لنسخة تيك توك في أقل من ثانية بدون إعادة رندرة الفيديو (-c:v copy)"""
+        ffmpeg_bin = self.find_ffmpeg()
+        cmd = [
+            ffmpeg_bin, "-y", "-nostdin", "-loglevel", "error",
+            "-i", str(video_path),
+            "-stream_loop", "-1",
+            "-i", str(audio_path),
+            "-t", "15",
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            str(output_path),
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+        return output_path
+
 
 # ============================================
 # المحرك الرئيسي وإدارة النشر
@@ -518,8 +547,14 @@ class FixedGoldShortsEngine:
         tt_cfg = self.config.get("tiktok", {})
         if tt_cfg.get("auto_upload", False):
             try:
+                tt_video_path = video_path
+                tt_audio = self.audio_mgr.get_tiktok_audio_path()
+                if tt_audio:
+                    tt_out = video_path.with_name(f"{video_path.stem}_tiktok.mp4")
+                    tt_video_path = self.assembler.replace_audio(video_path, tt_audio, tt_out)
+                    logger.info(f"🎵 تم دمج أنشودة تيك توك الخاصة ({tt_audio.name}) في: {tt_video_path.name}")
                 tt_uploader = TikTokUploader(SCRIPT_DIR)
-                tt_url = tt_uploader.upload_video(video_path)
+                tt_url = tt_uploader.upload_video(tt_video_path)
                 if tt_url:
                     logger.info(f"✅ تم النشر التلقائي على TikTok: {tt_url}")
             except Exception as e:
