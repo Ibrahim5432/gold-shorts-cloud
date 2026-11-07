@@ -18,6 +18,7 @@ video:
 # --- إعدادات الصوت المختارة ---
 audio:
   selected_track: "Option_Nasheed_With_Mizhar_Duff.mp3"
+  tiktok_track: "TikTok_Huna_Marru.mp3"
 
 # --- عملة الأونصة ---
 # "USD" (الدولار الأمريكي $ - الموصى به لسوق الأونصة العالمي)
