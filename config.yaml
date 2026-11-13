@@ -33,7 +33,7 @@ youtube:
 
 # --- النشر التلقائي على Facebook Reels ---
 facebook:
-  auto_upload: true
+  auto_upload: false
 
 # --- النشر التلقائي على TikTok ---
 tiktok:
