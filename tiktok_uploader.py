@@ -39,6 +39,8 @@ class TikTokUploader:
                     user_data_dir=str(self.profile_dir),
                     channel=channel,
                     headless=headless,
+                    timezone_id="Europe/Istanbul",
+                    locale="ar-SY",
                     args=[
                         "--disable-blink-features=AutomationControlled",
                         "--start-maximized",
@@ -55,9 +57,16 @@ class TikTokUploader:
             ctx = p.chromium.launch_persistent_context(
                 user_data_dir=str(self.profile_dir),
                 headless=headless,
+                timezone_id="Europe/Istanbul",
+                locale="ar-SY",
                 args=["--disable-blink-features=AutomationControlled", "--start-maximized"],
                 no_viewport=True,
             )
+
+        try:
+            ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
+        except Exception:
+            pass
 
         # حقن جلسة الدخول السحابية تلقائياً إذا كنا على سيرفر سحابي (GitHub Actions)
         if cloud_state.exists():
