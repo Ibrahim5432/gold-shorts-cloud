@@ -64,6 +64,7 @@ CONFIG_PATH = SCRIPT_DIR / "config.yaml"
 LOG_PATH = SCRIPT_DIR / "gold_shorts.log"
 FONTS_DIR = SCRIPT_DIR / "fonts"
 CUSTOM_AUDIO_DIR = SCRIPT_DIR / "custom_audio"
+TIKTOK_BG_DIR = SCRIPT_DIR / "tiktok_backgrounds"
 TEMP_DIR = SCRIPT_DIR / "temp"
 OUTPUT_DIR = SCRIPT_DIR / "output"
 
@@ -301,19 +302,7 @@ class PerfectFrameGenerator:
         draw.line([(cx - 200, y_top + 130), (cx + 200, y_top + 130)], fill=(212, 175, 55), width=2)
 
         # 2. الصفوف الحرفية المطلوبة
-        ounce_cur = self.config.get("ounce_currency", "USD")
-        if ounce_cur == "USD":
-            ounce_price_str = f"$ {prices.get('ounce_usd', 3995.85):,.2f}"
-        else:
-            ounce_price_str = f"{prices.get('ounce_try', 199008.51):,.2f} ₺"
-
-        rows_data = [
-            ("عيار 24", f"{prices.get('24k', 0):,.2f} ₺", (255, 215, 0)),
-            ("عيار 22", f"{prices.get('22k', 0):,.2f} ₺", (245, 180, 10)),
-            ("عيار 21", f"{prices.get('21k', 0):,.2f} ₺", (250, 195, 20)),
-            ("عيار 18", f"{prices.get('18k', 0):,.2f} ₺", (235, 150, 15)),
-            ("سعر اونصة الذهب", ounce_price_str, (255, 225, 50)),
-        ]
+        rows_data = self.get_rows_data(prices)
 
         y_start = 440
         spacing = 215
@@ -347,6 +336,125 @@ class PerfectFrameGenerator:
         )
 
         return img
+
+    def get_rows_data(self, prices: dict) -> list:
+        ounce_cur = self.config.get("ounce_currency", "USD")
+        if ounce_cur == "USD":
+            ounce_price_str = f"$ {prices.get('ounce_usd', 3995.85):,.2f}"
+        else:
+            ounce_price_str = f"{prices.get('ounce_try', 199008.51):,.2f} ₺"
+
+        return [
+            ("عيار 24", f"{prices.get('24k', 0):,.2f} ₺", (255, 215, 0)),
+            ("عيار 22", f"{prices.get('22k', 0):,.2f} ₺", (245, 180, 10)),
+            ("عيار 21", f"{prices.get('21k', 0):,.2f} ₺", (250, 195, 20)),
+            ("عيار 18", f"{prices.get('18k', 0):,.2f} ₺", (235, 150, 15)),
+            ("سعر اونصة الذهب", ounce_price_str, (255, 225, 50)),
+        ]
+
+    @property
+    def tiktok_title(self) -> str:
+        return "أسعار الذهب في تركيا"
+
+
+def render_glass_cards_overlay(
+    title_ar: str,
+    prices: dict,
+    rows_data: list,
+    get_font_fn,
+    revealed_count: int,
+    width: int = 1080,
+    height: int = 1920,
+) -> Image.Image:
+    """طبقة شفافة (RGBA) ببطاقات زجاجية داكنة لعرض الأسعار فوق خلفية الفيديو المتحركة في تيك توك فقط"""
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    cx = width // 2
+
+    # خلفية زجاجية داكنة ناعمة خلف العنوان العلوي لضمان تباين عالٍ فوق أي فيديو متحرك
+    draw.rounded_rectangle([80, 95, width - 80, 325], radius=28, fill=(8, 12, 22, 175), outline=(212, 175, 55, 140), width=2)
+    draw.line([(80, 50), (width - 80, 50)], fill=(212, 175, 55, 220), width=2)
+    draw.line([(80, height - 50), (width - 80, height - 50)], fill=(212, 175, 55, 220), width=2)
+
+    y_top = 175
+    draw.text((cx, y_top), ar(title_ar), fill=(255, 215, 0, 255), font=get_font_fn(64), anchor="mm")
+    today_str = prices.get("date", date.today().strftime("%Y/%m/%d"))
+    draw.text((cx, y_top + 78), today_str, fill=(230, 238, 248, 255), font=get_font_fn(40), anchor="mm")
+    draw.line([(cx - 190, 318), (cx + 190, 318)], fill=(212, 175, 55, 210), width=2)
+
+    y_start = 440
+    spacing = 215
+    card_h = 165
+    x1, x2 = 80, width - 80
+
+    for idx, (label, price_str, accent_color) in enumerate(rows_data[:revealed_count]):
+        y1 = y_start + (idx * spacing)
+        y2 = y1 + card_h
+
+        # بطاقة زجاجية داكنة تسمح بمرور إضاءة وحركة خلفية الذهب مع بقاء النصوص فائقة الوضوح
+        draw.rounded_rectangle(
+            [x1, y1, x2, y2],
+            radius=24,
+            fill=(10, 14, 24, 196),
+            outline=(212, 175, 55, 165),
+            width=2,
+        )
+        draw.rounded_rectangle(
+            [x2 - 12, y1 + 24, x2 - 4, y2 - 24],
+            radius=4,
+            fill=(*accent_color, 255),
+        )
+
+        label_font = get_font_fn(38) if len(label) > 10 else get_font_fn(46)
+        draw.text((x2 - 45, y1 + card_h // 2), ar(label), fill=(255, 255, 255, 255), font=label_font, anchor="rm")
+
+        price_font = get_font_fn(54) if len(price_str) > 11 else get_font_fn(58)
+        draw.text((x1 + 45, y1 + card_h // 2), price_str, fill=(0, 255, 157, 255), font=price_font, anchor="lm")
+
+    # شارة سفلية شفافة
+    draw.rounded_rectangle([cx - 210, height - 118, cx + 210, height - 56], radius=24, fill=(8, 12, 22, 175))
+    draw.text((cx, height - 87), ar("تحديث يومي فوري"), fill=(225, 232, 242, 245), font=get_font_fn(28), anchor="mm")
+
+    return img
+
+
+def build_tiktok_caption(country_code: str, prices: dict) -> str:
+    """إنشاء وصف متنوع ومخصص لتيك توك (بالأسعار الحية وبدون وسوم منصات أخرى)"""
+    today_str = prices.get("date", date.today().strftime("%Y/%m/%d"))
+    ordinal = date.today().toordinal()
+
+    if country_code == "syria":
+        p24 = f"{int(round(prices.get('24k', 0))):,}"
+        p21 = f"{int(round(prices.get('21k', 0))):,}"
+        hooks = [
+            f"📊 نشرة أسعار الذهب اليوم في سوريا ({today_str}) | عيار 21: {p21} ل.س",
+            f"🟡 تحديث مباشر لأسعار الذهب في سوريا ({today_str}) — عيار 24: {p24} ل.س | عيار 21: {p21} ل.س",
+            f"✨ سعر الذهب اليوم في دمشق وحلب ({today_str}) لجميع العيارات بالليرة السورية الجديدة",
+            f"🔔 أسعار الذهب والأونصة اليوم في سوريا ({today_str}) لحظة بلحظة",
+        ]
+        tags_pool = [
+            "#ذهب #أسعار_الذهب #سوريا #دمشق #حلب #الليرة_السورية #اكسبلور #تيك_توك",
+            "#سعر_الذهب_في_سوريا #ذهب_سوريا #اسعار_الذهب #دمشق #سوريا #فوريو #اقتصاد",
+            "#اسعار_الذهب_اليوم #سوريا #الليرة_السورية #عيار_21 #عيار_24 #اكسبلور #gold",
+        ]
+    else:
+        p24 = f"{prices.get('24k', 0):,.2f}"
+        p21 = f"{prices.get('21k', 0):,.2f}"
+        hooks = [
+            f"📊 نشرة أسعار الذهب اليوم في تركيا ({today_str}) | عيار 21: {p21} ₺",
+            f"🟡 تحديث أسعار الذهب في تركيا ({today_str}) — عيار 24: {p24} ₺ | عيار 21: {p21} ₺",
+            f"✨ أسعار غرام الذهب اليوم في إسطنبول وتركيا ({today_str}) بالليرة التركية والدولار",
+            f"🔔 السعر الفوري للذهب في تركيا ({today_str}) عيار 24 و22 و21 و18 والأونصة",
+        ]
+        tags_pool = [
+            "#ذهب #أسعار_الذهب #تركيا #اسطنبول #الليرة_التركية #اكسبلور #تيك_توك",
+            "#سعر_الذهب_في_تركيا #اسعار_الذهب #تركيا #اسطنبول #فوريو #اقتصاد #gold",
+            "#اسعار_الذهب_اليوم #تركيا #عيار_21 #عيار_24 #اكسبلور #السعودية #سوريا",
+        ]
+
+    hook = hooks[ordinal % len(hooks)]
+    tags = tags_pool[(ordinal + (1 if country_code == "syria" else 0)) % len(tags_pool)]
+    return f"{hook}\n{tags}"
 
 
 # ============================================
@@ -498,6 +606,148 @@ class VideoAssembler:
         subprocess.run(cmd, check=True, capture_output=True)
         return output_path
 
+    def assemble_tiktok_video_with_bg(
+        self,
+        frame_gen,
+        prices: dict,
+        audio_path: Path,
+        output_path: Path,
+        bg_video_path: Path,
+        country_offset: int = 0,
+        duration: float = 15.0,
+    ) -> Path:
+        """إنشاء نسخة تيك توك بخلفية فيديو متحركة حقيقية وبطاقات زجاجية شفافة (لتيك توك فقط)"""
+        ffmpeg_bin = self.find_ffmpeg()
+        eco_dir = TEMP_DIR / f"tt_bg_{output_path.stem}"
+        eco_dir.mkdir(parents=True, exist_ok=True)
+
+        title_ar = getattr(frame_gen, "tiktok_title", "أسعار الذهب")
+        rows_data = frame_gen.get_rows_data(prices)
+
+        step_files = []
+        for step_num in range(5):
+            overlay_img = render_glass_cards_overlay(
+                title_ar=title_ar,
+                prices=prices,
+                rows_data=rows_data,
+                get_font_fn=frame_gen.get_font,
+                revealed_count=step_num + 1,
+                width=1080,
+                height=1920,
+            )
+            step_path = eco_dir / f"step_{step_num}.png"
+            overlay_img.save(str(step_path), "PNG", compress_level=1)
+            step_files.append(step_path)
+
+        concat_file = eco_dir / "overlay_concat.txt"
+        lines = [
+            f"file '{step_files[0].as_posix()}'", "duration 0.20",
+            f"file '{step_files[1].as_posix()}'", "duration 0.20",
+            f"file '{step_files[2].as_posix()}'", "duration 0.20",
+            f"file '{step_files[3].as_posix()}'", "duration 0.20",
+            f"file '{step_files[4].as_posix()}'", f"duration {max(1.0, duration - 0.80):.2f}",
+            f"file '{step_files[4].as_posix()}'",
+        ]
+        concat_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        # تنويع بصري خفيف لكل يوم/دولة لمنع تطابق بصمة الفيديو عند تكرار الخلفيات
+        seed = date.today().toordinal() + country_offset
+        cycle = (date.today().toordinal() * 2 + country_offset) // max(1, len(list(TIKTOK_BG_DIR.glob("*.mp4"))))
+        allow_hflip = ("bars" not in bg_video_path.name.lower()) and (cycle % 2 == 1)
+        speed_factors = [1.0, 0.94, 1.06, 0.97, 1.03]
+        pts_factor = speed_factors[seed % len(speed_factors)]
+        hue_shifts = [0, -6, 6, -4, 4]
+        hue_deg = hue_shifts[seed % len(hue_shifts)]
+
+        bg_filters = [
+            "scale=1080:1920:force_original_aspect_ratio=increase",
+            "crop=1080:1920",
+            f"setpts={pts_factor:.2f}*PTS",
+            f"hue=h={hue_deg}:s=1.05",
+        ]
+        if allow_hflip:
+            bg_filters.append("hflip")
+        bg_filters.append(f"fps={self.fps}")
+        bg_filters.append("format=rgba")
+
+        # نقطة ضوئية ذهبية تنساب بنعومة على الخط السفلي طوال 15 ثانية لإبقاء كل إطار حياً
+        dur_str = f"{duration:.1f}"
+        filter_complex = (
+            f"[0:v]{','.join(bg_filters)}[bg];"
+            f"[1:v]fps={self.fps},format=rgba[ov];"
+            f"[bg][ov]overlay=0:0:shortest=1[comp];"
+            f"color=c=0xFFD700:s=80x5,format=rgba[glow];"
+            f"[comp][glow]overlay=x='80+(840*t/{dur_str})':y=1868:shortest=1,format=yuv420p[vout]"
+        )
+
+        cmd = [
+            ffmpeg_bin, "-y", "-nostdin", "-loglevel", "error",
+            "-stream_loop", "-1", "-i", str(bg_video_path),
+            "-f", "concat", "-safe", "0", "-i", str(concat_file),
+            "-stream_loop", "-1", "-i", str(audio_path),
+            "-filter_complex", filter_complex,
+            "-map", "[vout]",
+            "-map", "2:a:0",
+            "-t", f"{duration:.2f}",
+            "-fps_mode", "cfr",
+            "-c:v", "libx264",
+            "-crf", "22",
+            "-preset", "veryfast",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+
+        for f in eco_dir.glob("*"):
+            f.unlink(missing_ok=True)
+        eco_dir.rmdir()
+        return output_path
+
+
+def prepare_tiktok_video(
+    config: dict,
+    assembler: VideoAssembler,
+    audio_mgr: AudioManager,
+    frame_gen,
+    base_video_path: Path,
+    prices: dict,
+    country_code: str,
+    duration: float = 15.0,
+) -> tuple[Path, str]:
+    """تجهيز نسخة فيديو تيك توك (خلفية فيديو متحركة + أنشودة تيك توك + وصف متنوع) بدون المساس بنسخة يوتيوب"""
+    tt_cfg = config.get("tiktok", {})
+    tt_audio = audio_mgr.get_tiktok_audio_path() or audio_mgr.get_audio_path(duration, TEMP_DIR)
+    tt_out = base_video_path.with_name(f"{base_video_path.stem}_tiktok.mp4")
+    caption = build_tiktok_caption(country_code, prices)
+
+    bg_files = sorted(TIKTOK_BG_DIR.glob("*.mp4")) if TIKTOK_BG_DIR.exists() else []
+    use_video_bg = tt_cfg.get("video_background", True) and len(bg_files) > 0
+
+    if use_video_bg:
+        country_offset = 1 if country_code == "syria" else 0
+        bg_idx = (date.today().toordinal() * 2 + country_offset) % len(bg_files)
+        chosen_bg = bg_files[bg_idx]
+        logger.info(f"🎬 تجهيز نسخة تيك توك بخلفية فيديو متحركة ({chosen_bg.name}) + الصوت ({tt_audio.name})...")
+        assembler.assemble_tiktok_video_with_bg(
+            frame_gen=frame_gen,
+            prices=prices,
+            audio_path=tt_audio,
+            output_path=tt_out,
+            bg_video_path=chosen_bg,
+            country_offset=country_offset,
+            duration=duration,
+        )
+        return tt_out, caption
+
+    if audio_mgr.get_tiktok_audio_path():
+        assembler.replace_audio(base_video_path, tt_audio, tt_out)
+        logger.info(f"🎵 تم دمج أنشودة تيك توك الخاصة ({tt_audio.name}) في: {tt_out.name}")
+        return tt_out, caption
+
+    return base_video_path, caption
+
 
 # ============================================
 # المحرك الرئيسي وإدارة النشر
@@ -547,14 +797,18 @@ class FixedGoldShortsEngine:
         tt_cfg = self.config.get("tiktok", {})
         if tt_cfg.get("auto_upload", False):
             try:
-                tt_video_path = video_path
-                tt_audio = self.audio_mgr.get_tiktok_audio_path()
-                if tt_audio:
-                    tt_out = video_path.with_name(f"{video_path.stem}_tiktok.mp4")
-                    tt_video_path = self.assembler.replace_audio(video_path, tt_audio, tt_out)
-                    logger.info(f"🎵 تم دمج أنشودة تيك توك الخاصة ({tt_audio.name}) في: {tt_video_path.name}")
+                tt_video_path, tt_desc = prepare_tiktok_video(
+                    config=self.config,
+                    assembler=self.assembler,
+                    audio_mgr=self.audio_mgr,
+                    frame_gen=self.frame_gen,
+                    base_video_path=video_path,
+                    prices=prices,
+                    country_code="turkey",
+                    duration=self.duration,
+                )
                 tt_uploader = TikTokUploader(SCRIPT_DIR)
-                tt_url = tt_uploader.upload_video(tt_video_path)
+                tt_url = tt_uploader.upload_video(tt_video_path, description=tt_desc)
                 if tt_url:
                     logger.info(f"✅ تم النشر التلقائي على TikTok: {tt_url}")
             except Exception as e:
