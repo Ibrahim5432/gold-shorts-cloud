@@ -45,6 +45,7 @@ from make_gold_short import (
     ar,
     AudioManager,
     VideoAssembler,
+    prepare_tiktok_video,
 )
 from youtube_uploader import YouTubeUploader
 from facebook_uploader import FacebookUploader
@@ -232,16 +233,7 @@ class SyriaFrameGenerator:
         draw.line([(cx - 200, y_top + 130), (cx + 200, y_top + 130)], fill=(212, 175, 55), width=2)
 
         # 2. الصفوف الخمسة المعتمدة
-        syp_unit = ar("ل.س")
-        ounce_price_str = f"$ {prices.get('ounce_usd', 3995.88):,.2f}"
-
-        rows_data = [
-            ("عيار 24", f"{int(round(prices.get('24k', 0))):,} {syp_unit}", (255, 215, 0)),
-            ("عيار 22", f"{int(round(prices.get('22k', 0))):,} {syp_unit}", (245, 180, 10)),
-            ("عيار 21", f"{int(round(prices.get('21k', 0))):,} {syp_unit}", (250, 195, 20)),
-            ("عيار 18", f"{int(round(prices.get('18k', 0))):,} {syp_unit}", (235, 150, 15)),
-            ("سعر اونصة الذهب", ounce_price_str, (255, 225, 50)),
-        ]
+        rows_data = self.get_rows_data(prices)
 
         y_start = 440
         spacing = 215
@@ -275,6 +267,21 @@ class SyriaFrameGenerator:
         )
 
         return img
+
+    def get_rows_data(self, prices: dict) -> list:
+        syp_unit = ar("ل.س")
+        ounce_price_str = f"$ {prices.get('ounce_usd', 3995.88):,.2f}"
+        return [
+            ("عيار 24", f"{int(round(prices.get('24k', 0))):,} {syp_unit}", (255, 215, 0)),
+            ("عيار 22", f"{int(round(prices.get('22k', 0))):,} {syp_unit}", (245, 180, 10)),
+            ("عيار 21", f"{int(round(prices.get('21k', 0))):,} {syp_unit}", (250, 195, 20)),
+            ("عيار 18", f"{int(round(prices.get('18k', 0))):,} {syp_unit}", (235, 150, 15)),
+            ("سعر اونصة الذهب", ounce_price_str, (255, 225, 50)),
+        ]
+
+    @property
+    def tiktok_title(self) -> str:
+        return "أسعار الذهب في سوريا"
 
 
 class SyriaGoldShortsEngine:
@@ -340,14 +347,18 @@ class SyriaGoldShortsEngine:
         tt_cfg = self.config.get("tiktok", {})
         if tt_cfg.get("auto_upload", False):
             try:
-                tt_video_path = video_path
-                tt_audio = self.audio_mgr.get_tiktok_audio_path()
-                if tt_audio:
-                    tt_out = video_path.with_name(f"{video_path.stem}_tiktok.mp4")
-                    tt_video_path = self.assembler.replace_audio(video_path, tt_audio, tt_out)
-                    logger.info(f"🎵 تم دمج أنشودة تيك توك الخاصة ({tt_audio.name}) في: {tt_video_path.name}")
+                tt_video_path, tt_desc = prepare_tiktok_video(
+                    config=self.config,
+                    assembler=self.assembler,
+                    audio_mgr=self.audio_mgr,
+                    frame_gen=self.frame_gen,
+                    base_video_path=video_path,
+                    prices=prices,
+                    country_code="syria",
+                    duration=self.duration,
+                )
                 tt_uploader = TikTokUploader(SCRIPT_DIR)
-                tt_url = tt_uploader.upload_video(tt_video_path, description=social_desc)
+                tt_url = tt_uploader.upload_video(tt_video_path, description=tt_desc)
                 if tt_url:
                     logger.info(f"✅ تم نشر فيديو سوريا تلقائياً على TikTok: {tt_url}")
             except Exception as e:
