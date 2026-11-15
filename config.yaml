@@ -38,3 +38,4 @@ facebook:
 # --- النشر التلقائي على TikTok ---
 tiktok:
   auto_upload: true
+  video_background: true
