@@ -49,12 +49,15 @@ jobs:
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           MANUAL_COUNTRY: ${{ github.event.inputs.country }}
+          HAS_TS: ${{ secrets.TAILSCALE_AUTHKEY }}
         run: |
+          $hasTs = -not [string]::IsNullOrWhiteSpace($env:HAS_TS)
+          "has_ts=$($hasTs.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and $env:MANUAL_COUNTRY -ne "auto") {
             $mc = $env:MANUAL_COUNTRY
             $needYt = ($mc -in @("both", "turkey", "syria"))
             $needTt = ($mc -in @("both", "turkey", "syria", "turkey_tiktok", "syria_tiktok", "tiktok_only", "check"))
-            Write-Host "🔧 Manual dispatch ($mc): need_yt=$needYt, need_tt=$needTt"
+            Write-Host "🔧 Manual dispatch ($mc): need_yt=$needYt, need_tt=$needTt, has_ts=$hasTs"
             "should_run=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
             "need_yt=$($needYt.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
             "need_tt=$($needTt.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
@@ -145,7 +148,7 @@ jobs:
           }
 
       - name: Connect Tailscale to Android Phone Bridge
-        if: steps.check_needed.outputs.should_run == 'true' && steps.check_needed.outputs.need_tt == 'true' && secrets.TAILSCALE_AUTHKEY != ''
+        if: steps.check_needed.outputs.should_run == 'true' && steps.check_needed.outputs.need_tt == 'true' && steps.check_needed.outputs.has_ts == 'true'
         uses: tailscale/github-action@v4
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
