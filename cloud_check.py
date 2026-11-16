@@ -41,8 +41,34 @@ else:
     report["facebook"] = {"skipped": True, "reason": "disabled in config.yaml"}
 
 if cfg.get("tiktok", {}).get("auto_upload", False):
-    import os
+    import os, shutil, socket, subprocess
+    from urllib.parse import urlparse
+
     tt = TikTokUploader(ROOT)
+    if tt.proxy_server:
+        parsed_px = urlparse(tt.proxy_server)
+        px_host = parsed_px.hostname
+        px_port = parsed_px.port or 8080
+        ts_bin = shutil.which("tailscale") or (
+            r"C:\hostedtoolcache\windows\tailscale\1.104.4\Windows-amd64\tailscale.exe"
+        )
+        if ts_bin and Path(ts_bin).exists() or shutil.which("tailscale"):
+            cmd_ts = shutil.which("tailscale") or ts_bin
+            try:
+                st_out = subprocess.run([cmd_ts, "status"], capture_output=True, text=True, timeout=10)
+                print("TAILSCALE_STATUS:\n" + (st_out.stdout or st_out.stderr))
+                if px_host:
+                    pg_out = subprocess.run([cmd_ts, "ping", "-c", "3", px_host], capture_output=True, text=True, timeout=15)
+                    print("TAILSCALE_PING:\n" + (pg_out.stdout or pg_out.stderr))
+            except Exception as e:
+                print("TAILSCALE_DIAG_ERR:", e)
+        if px_host:
+            try:
+                with socket.create_connection((px_host, px_port), timeout=8):
+                    print(f"TCP_CONNECT_OK: {px_host}:{px_port}")
+            except Exception as e:
+                print(f"TCP_CONNECT_FAIL: {px_host}:{px_port} -> {e}")
+
     proxy_info = tt.verify_proxy_connection(timeout=15) if tt.proxy_server else None
     report["tiktok_proxy"] = proxy_info or {"active": bool(tt.proxy_server), "reachable": False}
     require_proxy = os.environ.get("TIKTOK_REQUIRE_PROXY", "").strip().lower() in ("1", "true", "yes")
