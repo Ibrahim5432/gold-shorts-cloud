@@ -41,15 +41,28 @@ else:
     report["facebook"] = {"skipped": True, "reason": "disabled in config.yaml"}
 
 if cfg.get("tiktok", {}).get("auto_upload", False):
-    with sync_playwright() as p:
-        ctx = TikTokUploader(ROOT)._launch_browser(p, headless=False)
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        page.goto("https://www.tiktok.com/tiktokstudio/upload", wait_until="domcontentloaded", timeout=60000)
-        time.sleep(10)
-        tt_logged = "login" not in page.url.lower()
-        report["tiktok"] = {"logged_in": tt_logged, "url": page.url, "title": page.title()}
-        page.screenshot(path=str(PROOF / "tiktok_cloud.png"))
-        ctx.close()
+    import os
+    tt = TikTokUploader(ROOT)
+    proxy_info = tt.verify_proxy_connection(timeout=15) if tt.proxy_server else None
+    report["tiktok_proxy"] = proxy_info or {"active": bool(tt.proxy_server), "reachable": False}
+    require_proxy = os.environ.get("TIKTOK_REQUIRE_PROXY", "").strip().lower() in ("1", "true", "yes")
+    if (tt.proxy_server or require_proxy) and not proxy_info:
+        report["tiktok"] = {"logged_in": False, "error": "Phone proxy unreachable"}
+    else:
+        with sync_playwright() as p:
+            ctx = tt._launch_browser(p, headless=False)
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            try:
+                page.goto("https://api.country.is/", wait_until="domcontentloaded", timeout=25000)
+                report["browser_exit_ip"] = page.locator("body").inner_text().strip()
+            except Exception as e:
+                report["browser_exit_ip"] = f"err: {e}"
+            page.goto("https://www.tiktok.com/tiktokstudio/upload", wait_until="domcontentloaded", timeout=60000)
+            time.sleep(10)
+            tt_logged = "login" not in page.url.lower()
+            report["tiktok"] = {"logged_in": tt_logged, "url": page.url, "title": page.title()}
+            page.screenshot(path=str(PROOF / "tiktok_cloud.png"))
+            ctx.close()
 else:
     report["tiktok"] = {"skipped": True, "reason": "disabled in config.yaml"}
 
