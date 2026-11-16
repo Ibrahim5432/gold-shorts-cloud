@@ -296,9 +296,10 @@ class SyriaGoldShortsEngine:
         self.assembler = VideoAssembler(fps=self.fps)
         self.yt_uploader = YouTubeUploader(SCRIPT_DIR)
 
-    def publish_video(self, video_path: Path, prices: dict):
-        """النشر التلقائي لفيديو أسعار الذهب في سوريا على يوتيوب وفيسبوك وتيك توك"""
+    def publish_video(self, video_path: Path, prices: dict, platform: str = "all") -> dict:
+        """النشر التلقائي لفيديو أسعار الذهب في سوريا على يوتيوب وفيسبوك وتيك توك مع دعم فصل المنصات"""
         today_str = prices.get("date", date.today().strftime("%Y/%m/%d"))
+        results = {"youtube": False, "facebook": False, "tiktok": False}
 
         yt_title = f"أسعار الذهب اليوم في سوريا {today_str} ل.س #shorts #gold"
         yt_desc = (
@@ -318,7 +319,7 @@ class SyriaGoldShortsEngine:
 
         # 1. يوتيوب
         yt_cfg = self.config.get("youtube", {})
-        if yt_cfg.get("auto_upload", False):
+        if platform in ("all", "youtube") and yt_cfg.get("auto_upload", False):
             try:
                 privacy = yt_cfg.get("privacy_status", "public")
                 yt_url = self.yt_uploader.upload_video(
@@ -328,24 +329,27 @@ class SyriaGoldShortsEngine:
                     tags=yt_tags,
                     privacy_status=privacy,
                 )
-                logger.info(f"✅ تم نشر فيديو سوريا تلقائياً على YouTube: {yt_url}")
+                if yt_url:
+                    logger.info(f"✅ تم نشر فيديو سوريا تلقائياً على YouTube: {yt_url}")
+                    results["youtube"] = True
             except Exception as e:
                 logger.error(f"❌ خطأ أثناء رفع فيديو سوريا إلى يوتيوب: {e}")
 
         # 2. فيسبوك
         fb_cfg = self.config.get("facebook", {})
-        if fb_cfg.get("auto_upload", False):
+        if platform in ("all", "facebook") and fb_cfg.get("auto_upload", False):
             try:
                 fb_uploader = FacebookUploader(SCRIPT_DIR)
                 fb_url = fb_uploader.upload_video(video_path, description=social_desc)
                 if fb_url:
                     logger.info(f"✅ تم نشر فيديو سوريا تلقائياً على Facebook: {fb_url}")
+                    results["facebook"] = True
             except Exception as e:
                 logger.error(f"❌ خطأ أثناء رفع فيديو سوريا إلى فيسبوك: {e}")
 
         # 3. تيك توك
         tt_cfg = self.config.get("tiktok", {})
-        if tt_cfg.get("auto_upload", False):
+        if platform in ("all", "tiktok") and tt_cfg.get("auto_upload", False):
             try:
                 tt_video_path, tt_desc = prepare_tiktok_video(
                     config=self.config,
@@ -361,11 +365,14 @@ class SyriaGoldShortsEngine:
                 tt_url = tt_uploader.upload_video(tt_video_path, description=tt_desc)
                 if tt_url:
                     logger.info(f"✅ تم نشر فيديو سوريا تلقائياً على TikTok: {tt_url}")
+                    results["tiktok"] = True
             except Exception as e:
                 logger.error(f"❌ خطأ أثناء رفع فيديو سوريا إلى تيك توك: {e}")
 
-    def run(self, preview_only: bool = False, skip_publish: bool = False):
-        logger.info("🚀 بدء إنتاج فيديو أسعار الذهب اليومي في سوريا (15 ثانية)...")
+        return results
+
+    def run(self, preview_only: bool = False, skip_publish: bool = False, platform: str = "all") -> dict:
+        logger.info(f"🚀 بدء إنتاج فيديو أسعار الذهب اليومي في سوريا (platform={platform})...")
 
         # 1. جلب الأسعار الحية لسوريا
         prices = self.fetcher.fetch_syria_prices()
@@ -376,43 +383,48 @@ class SyriaGoldShortsEngine:
             preview_path = TEMP_DIR / "syria_frame_verified.png"
             preview_img.save(str(preview_path), "PNG")
             logger.info(f"✅ تم حفظ صورة المعاينة في: {preview_path}")
-            return str(preview_path)
+            return {"video": str(preview_path), "results": {}}
 
         today_code = date.today().strftime("%Y%m%d")
         output_file = OUTPUT_DIR / f"syria_gold_price_{today_code}.mp4"
 
-        if output_file.exists() and "--force-render" not in sys.argv:
-            import time as _t
-            if (_t.time() - output_file.stat().st_mtime) < 900:
-                logger.info(f"⚡ استخدام ملف الفيديو الجاهز حديثاً: {output_file}")
-                if not skip_publish:
-                    self.publish_video(output_file, prices)
-                return str(output_file)
+        tt_cfg = self.config.get("tiktok", {})
+        tik_bg_dir = SCRIPT_DIR / "tiktok_backgrounds"
+        has_bg = tik_bg_dir.exists() and any(tik_bg_dir.glob("*.mp4"))
+        skip_base_render = (platform == "tiktok") and tt_cfg.get("video_background", True) and has_bg
 
-        # 2. تحضير الصوت
-        audio_path = self.audio_mgr.get_audio_path(self.duration, TEMP_DIR)
+        if not skip_base_render:
+            if output_file.exists() and "--force-render" not in sys.argv:
+                import time as _t
+                if (_t.time() - output_file.stat().st_mtime) < 900:
+                    logger.info(f"⚡ استخدام ملف الفيديو الجاهز حديثاً: {output_file}")
+                    pub_res = self.publish_video(output_file, prices, platform=platform) if not skip_publish else {}
+                    return {"video": str(output_file), "results": pub_res}
 
-        # 3. إنتاج الفيديو مباشرة في الذاكرة بدون إجهاد المعالج أو الهارد
-        total_frames = int(self.fps * self.duration)
-        logger.info(f"⚡ جاري إنتاج فيديو سوريا ({total_frames} إطاراً) بوضع توفير الطاقة القصوى (Eco Single-Core)...")
-        final_path = self.assembler.assemble_ultra_light(
-            self.frame_gen, prices, total_frames, audio_path, output_file
-        )
+            audio_path = self.audio_mgr.get_audio_path(self.duration, TEMP_DIR)
+            total_frames = int(self.fps * self.duration)
+            logger.info(f"⚡ جاري إنتاج فيديو سوريا ({total_frames} إطاراً) بوضع توفير الطاقة القصوى (Eco Single-Core)...")
+            final_path = self.assembler.assemble_ultra_light(
+                self.frame_gen, prices, total_frames, audio_path, output_file
+            )
+            logger.info(f"🎉 تم إنشاء فيديو سوريا بنجاح: {final_path}")
+        else:
+            final_path = output_file
 
-        logger.info(f"🎉 تم إنشاء فيديو سوريا بنجاح: {final_path}")
-
-        # 5. النشر التلقائي
-        if not skip_publish:
-            self.publish_video(final_path, prices)
-
-        return str(final_path)
+        pub_res = self.publish_video(final_path, prices, platform=platform) if not skip_publish else {}
+        return {"video": str(final_path), "results": pub_res}
 
 
 if __name__ == "__main__":
+    plat = "all"
+    if "--platform" in sys.argv:
+        idx = sys.argv.index("--platform")
+        if idx + 1 < len(sys.argv):
+            plat = sys.argv[idx + 1].strip().lower()
     engine = SyriaGoldShortsEngine()
     if "--preview" in sys.argv:
         engine.run(preview_only=True)
     elif "--no-publish" in sys.argv:
-        engine.run(skip_publish=True)
+        engine.run(skip_publish=True, platform=plat)
     else:
-        engine.run()
+        engine.run(platform=plat)
