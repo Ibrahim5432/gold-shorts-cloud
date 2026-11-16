@@ -366,25 +366,24 @@ def render_glass_cards_overlay(
     width: int = 1080,
     height: int = 1920,
 ) -> Image.Image:
-    """طبقة شفافة (RGBA) ببطاقات زجاجية داكنة لعرض الأسعار فوق خلفية الفيديو المتحركة في تيك توك فقط"""
+    """طبقة شفافة (RGBA) ببطاقات زجاجية داكنة في المنطقة الآمنة لتيك توك (بعيداً عن شريط تيك توك العلوي والوصف السفلي)"""
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     cx = width // 2
 
-    # خلفية زجاجية داكنة ناعمة خلف العنوان العلوي لضمان تباين عالٍ فوق أي فيديو متحرك
-    draw.rounded_rectangle([80, 95, width - 80, 325], radius=28, fill=(8, 12, 22, 175), outline=(212, 175, 55, 140), width=2)
-    draw.line([(80, 50), (width - 80, 50)], fill=(212, 175, 55, 220), width=2)
-    draw.line([(80, height - 50), (width - 80, height - 50)], fill=(212, 175, 55, 220), width=2)
+    # خفض العنوان قليلاً ليقع تحت شريط تيك توك العلوي (Following / For You) مباشرةً
+    draw.rounded_rectangle([80, 210, width - 80, 420], radius=28, fill=(8, 12, 22, 180), outline=(212, 175, 55, 150), width=2)
+    draw.line([(80, 45), (width - 80, 45)], fill=(212, 175, 55, 180), width=2)
 
-    y_top = 175
-    draw.text((cx, y_top), ar(title_ar), fill=(255, 215, 0, 255), font=get_font_fn(64), anchor="mm")
+    y_top = 285
+    draw.text((cx, y_top), ar(title_ar), fill=(255, 215, 0, 255), font=get_font_fn(62), anchor="mm")
     today_str = prices.get("date", date.today().strftime("%Y/%m/%d"))
-    draw.text((cx, y_top + 78), today_str, fill=(230, 238, 248, 255), font=get_font_fn(40), anchor="mm")
-    draw.line([(cx - 190, 318), (cx + 190, 318)], fill=(212, 175, 55, 210), width=2)
+    draw.text((cx, y_top + 74), today_str, fill=(230, 238, 248, 255), font=get_font_fn(38), anchor="mm")
+    draw.line([(cx - 190, 412), (cx + 190, 412)], fill=(212, 175, 55, 210), width=2)
 
-    y_start = 440
-    spacing = 215
-    card_h = 165
+    y_start = 465
+    spacing = 195
+    card_h = 152
     x1, x2 = 80, width - 80
 
     for idx, (label, price_str, accent_color) in enumerate(rows_data[:revealed_count]):
@@ -400,7 +399,7 @@ def render_glass_cards_overlay(
             width=2,
         )
         draw.rounded_rectangle(
-            [x2 - 12, y1 + 24, x2 - 4, y2 - 24],
+            [x2 - 12, y1 + 22, x2 - 4, y2 - 22],
             radius=4,
             fill=(*accent_color, 255),
         )
@@ -411,9 +410,9 @@ def render_glass_cards_overlay(
         price_font = get_font_fn(54) if len(price_str) > 11 else get_font_fn(58)
         draw.text((x1 + 45, y1 + card_h // 2), price_str, fill=(0, 255, 157, 255), font=price_font, anchor="lm")
 
-    # شارة سفلية شفافة
-    draw.rounded_rectangle([cx - 210, height - 118, cx + 210, height - 56], radius=24, fill=(8, 12, 22, 175))
-    draw.text((cx, height - 87), ar("تحديث يومي فوري"), fill=(225, 232, 242, 245), font=get_font_fn(28), anchor="mm")
+    # شارة سفلية شفافة أعلى منطقة الوصف والأزرار السفلية لتيك توك
+    draw.rounded_rectangle([cx - 210, 1445, cx + 210, 1505], radius=24, fill=(8, 12, 22, 180), outline=(212, 175, 55, 120), width=1)
+    draw.text((cx, 1475), ar("تحديث يومي فوري"), fill=(225, 232, 242, 245), font=get_font_fn(28), anchor="mm")
 
     return img
 
@@ -665,24 +664,29 @@ class VideoAssembler:
             f"setpts={pts_factor:.2f}*PTS",
             f"hue=h={hue_deg}:s=1.05",
         ]
+        if "bars" not in bg_video_path.name.lower():
+            bg_filters.append("eq=brightness=0.05:contrast=1.08:saturation=1.12")
         if allow_hflip:
             bg_filters.append("hflip")
         bg_filters.append(f"fps={self.fps}")
         bg_filters.append("format=rgba")
 
-        # نقطة ضوئية ذهبية تنساب بنعومة على الخط السفلي طوال 15 ثانية لإبقاء كل إطار حياً
+        # تخطي المقدمة الداكنة في molten_gold ليبدأ المقطع وصورة الغلاف بإضاءة ذهبية ساطعة منذ الإطار الأول
+        bg_seek = ["-ss", "5.0"] if "molten" in bg_video_path.name.lower() else []
+
+        # نقطة ضوئية ذهبية تنساب بنعومة فوق منطقة الشارة السفلية طوال 15 ثانية لإبقاء كل إطار حياً
         dur_str = f"{duration:.1f}"
         filter_complex = (
             f"[0:v]{','.join(bg_filters)}[bg];"
             f"[1:v]fps={self.fps},format=rgba[ov];"
             f"[bg][ov]overlay=0:0:shortest=1[comp];"
             f"color=c=0xFFD700:s=80x5,format=rgba[glow];"
-            f"[comp][glow]overlay=x='80+(840*t/{dur_str})':y=1868:shortest=1,format=yuv420p[vout]"
+            f"[comp][glow]overlay=x='80+(840*t/{dur_str})':y=1525:shortest=1,format=yuv420p[vout]"
         )
 
         cmd = [
             ffmpeg_bin, "-y", "-nostdin", "-loglevel", "error",
-            "-stream_loop", "-1", "-i", str(bg_video_path),
+            "-stream_loop", "-1", *bg_seek, "-i", str(bg_video_path),
             "-f", "concat", "-safe", "0", "-i", str(concat_file),
             "-stream_loop", "-1", "-i", str(audio_path),
             "-filter_complex", filter_complex,
@@ -765,18 +769,21 @@ class FixedGoldShortsEngine:
         self.assembler = VideoAssembler(fps=self.fps)
         self.yt_uploader = YouTubeUploader(SCRIPT_DIR)
 
-    def publish_video(self, video_path: Path, prices: dict):
-        """إدارة النشر التلقائي إلى يوتيوب وفيسبوك"""
+    def publish_video(self, video_path: Path, prices: dict, platform: str = "all") -> dict:
+        """إدارة النشر التلقائي إلى يوتيوب وفيسبوك وتيك توك مع دعم فصل المنصات"""
         today_str = prices.get("date", date.today().strftime("%Y/%m/%d"))
+        results = {"youtube": False, "facebook": False, "tiktok": False}
 
         # 1. يوتيوب
         yt_cfg = self.config.get("youtube", {})
-        if yt_cfg.get("auto_upload", False):
+        if platform in ("all", "youtube") and yt_cfg.get("auto_upload", False):
             try:
                 title = yt_cfg.get("title_template", "أسعار الذهب اليوم في تركيا {date} ₺ #shorts").format(date=today_str)
                 privacy = yt_cfg.get("privacy_status", "public")
                 yt_url = self.yt_uploader.upload_video(video_path, title=title, privacy_status=privacy)
-                logger.info(f"✅ تم النشر التلقائي على YouTube: {yt_url}")
+                if yt_url:
+                    logger.info(f"✅ تم النشر التلقائي على YouTube: {yt_url}")
+                    results["youtube"] = True
             except FileNotFoundError as e:
                 logger.warning(f"⚠️ تنبيه يوتيوب: {e}")
             except Exception as e:
@@ -784,18 +791,19 @@ class FixedGoldShortsEngine:
 
         # 2. فيسبوك
         fb_cfg = self.config.get("facebook", {})
-        if fb_cfg.get("auto_upload", False):
+        if platform in ("all", "facebook") and fb_cfg.get("auto_upload", False):
             try:
                 fb_uploader = FacebookUploader(SCRIPT_DIR)
                 fb_url = fb_uploader.upload_video(video_path)
                 if fb_url:
                     logger.info(f"✅ تم النشر التلقائي على Facebook: {fb_url}")
+                    results["facebook"] = True
             except Exception as e:
                 logger.error(f"❌ خطأ أثناء رفع الفيديو إلى فيسبوك: {e}")
 
         # 3. تيك توك
         tt_cfg = self.config.get("tiktok", {})
-        if tt_cfg.get("auto_upload", False):
+        if platform in ("all", "tiktok") and tt_cfg.get("auto_upload", False):
             try:
                 tt_video_path, tt_desc = prepare_tiktok_video(
                     config=self.config,
@@ -811,37 +819,46 @@ class FixedGoldShortsEngine:
                 tt_url = tt_uploader.upload_video(tt_video_path, description=tt_desc)
                 if tt_url:
                     logger.info(f"✅ تم النشر التلقائي على TikTok: {tt_url}")
+                    results["tiktok"] = True
             except Exception as e:
                 logger.error(f"❌ خطأ أثناء رفع الفيديو إلى تيك توك: {e}")
 
-    def run(self):
-        logger.info("🚀 بدء إنتاج فيديو الذهب اليومي (15 ثانية)...")
+        return results
+
+    def run(self, platform: str = "all") -> dict:
+        logger.info(f"🚀 بدء إنتاج فيديو الذهب اليومي (تركيا | platform={platform})...")
 
         # 1. جلب الأسعار
         prices = self.fetcher.fetch_turkey_prices()
         logger.info(f"الأسعار الحية: {prices}")
 
-        # 2. تحضير الصوت
-        audio_path = self.audio_mgr.get_audio_path(self.duration, TEMP_DIR)
-
-        # 3. إنتاج الفيديو مباشرة في الذاكرة بدون إجهاد المعالج أو الهارد
-        total_frames = int(self.fps * self.duration)
         today_code = date.today().strftime("%Y%m%d")
         output_file = OUTPUT_DIR / f"gold_price_{today_code}.mp4"
 
-        logger.info(f"⚡ جاري إنتاج الفيديو ({total_frames} إطاراً) بوضع توفير الطاقة القصوى (Eco Single-Core)...")
-        final_path = self.assembler.assemble_ultra_light(
-            self.frame_gen, prices, total_frames, audio_path, output_file
-        )
+        tt_cfg = self.config.get("tiktok", {})
+        has_bg = TIKTOK_BG_DIR.exists() and any(TIKTOK_BG_DIR.glob("*.mp4"))
+        skip_base_render = (platform == "tiktok") and tt_cfg.get("video_background", True) and has_bg
 
-        logger.info(f"🎉 تم إنشاء الفيديو بنجاح: {final_path}")
+        if not skip_base_render:
+            audio_path = self.audio_mgr.get_audio_path(self.duration, TEMP_DIR)
+            total_frames = int(self.fps * self.duration)
+            logger.info(f"⚡ جاري إنتاج الفيديو الأساسي ({total_frames} إطاراً) بوضع توفير الطاقة القصوى (Eco Single-Core)...")
+            final_path = self.assembler.assemble_ultra_light(
+                self.frame_gen, prices, total_frames, audio_path, output_file
+            )
+            logger.info(f"🎉 تم إنشاء الفيديو بنجاح: {final_path}")
+        else:
+            final_path = output_file
 
-        # 5. النشر التلقائي
-        self.publish_video(final_path, prices)
-
-        return str(final_path)
+        pub_res = self.publish_video(final_path, prices, platform=platform)
+        return {"video": str(final_path), "results": pub_res}
 
 
 if __name__ == "__main__":
+    plat = "all"
+    if "--platform" in sys.argv:
+        idx = sys.argv.index("--platform")
+        if idx + 1 < len(sys.argv):
+            plat = sys.argv[idx + 1].strip().lower()
     engine = FixedGoldShortsEngine()
-    engine.run()
+    engine.run(platform=plat)
