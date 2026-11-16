@@ -206,30 +206,59 @@ class TikTokUploader:
                     file_inputs = frame.locator('input[type="file"]')
                     break
 
-        logger.info(f"عدد حقول رفع الملفات الموجودة في تيك توك: {file_inputs.count()}")
-        file_inputs.first.set_input_files(str(video_path))
-        logger.info("✅ تم إرفاق ملف الفيديو في تيك توك بنجاح، جاري انتظار اكتمال الرفع...")
-        time.sleep(8)
-        page.screenshot(path=str(temp_dir / "tt_step1_uploaded.png"))
-
-        # إغلاق أي نوافذ إرشادية منبثقة (Got it / حسناً)
-        for dismiss_txt in ["Got it", "حسناً", "فهمت", "Not now", "ليس الآن"]:
+        def _dismiss_popups():
+            for sel in [
+                '#react-joyride-portal button',
+                'button:has-text("فهمت")',
+                'button:has-text("Got it")',
+                'button:has-text("حسناً")',
+                'button:has-text("Not now")',
+                'button:has-text("ليس الآن")',
+                'div[role="button"]:has-text("فهمت")',
+                'div[role="button"]:has-text("Got it")',
+            ]:
+                try:
+                    btn = target_frame.locator(sel)
+                    if btn.count() > 0 and btn.first.is_visible():
+                        btn.first.click(timeout=1500)
+                        time.sleep(0.5)
+                except Exception:
+                    pass
             try:
-                btn = target_frame.locator(f'button:has-text("{dismiss_txt}"), div[role="button"]:has-text("{dismiss_txt}")')
-                if btn.count() > 0 and btn.first.is_visible():
-                    btn.first.click(timeout=2000)
-                    time.sleep(1)
+                target_frame.evaluate("""() => {
+                    const p = document.getElementById('react-joyride-portal');
+                    if (p) p.remove();
+                    document.querySelectorAll('.react-joyride__overlay').forEach(e => e.remove());
+                }""")
             except Exception:
                 pass
 
+        logger.info(f"عدد حقول رفع الملفات الموجودة في تيك توك: {file_inputs.count()}")
+        file_inputs.first.set_input_files(str(video_path))
+        logger.info("✅ تم إرفاق ملف الفيديو في تيك توك بنجاح، جاري انتظار تحميل محرر الفيديو...")
+
+        # انتظار ظهور محرر TikTok Studio الفعلي (مربع الوصف وزر النشر) قبل إغلاق النوافذ أو الكتابة
+        for ui_wait in range(30):
+            _dismiss_popups()
+            try:
+                if target_frame.locator('div[contenteditable="true"]').count() > 0:
+                    break
+            except Exception:
+                pass
+            time.sleep(2)
+
+        _dismiss_popups()
+        page.screenshot(path=str(temp_dir / "tt_step1_uploaded.png"))
+
         # انتظار اكتمال رفع الفيديو بنسبة 100% (مهم خاصة عبر بروكسي الهاتف)
         for up_wait in range(36):
+            _dismiss_popups()
             try:
                 still_uploading = target_frame.evaluate("""() => {
                     const t = document.body ? document.body.innerText : '';
                     return /متبقي|\\bUploading\\b|\\bleft\\b|\\b\\d{1,2}(\\.\\d+)?%/.test(t);
                 }""")
-                if not still_uploading:
+                if not still_uploading and up_wait >= 2:
                     logger.info("✅ اكتمل رفع ملف الفيديو إلى خوادم تيك توك بنسبة 100%.")
                     break
             except Exception:
@@ -237,6 +266,7 @@ class TikTokUploader:
             time.sleep(3)
 
         # 2. كتابة وصف الفيديو والهاشتاغات
+        _dismiss_popups()
         try:
             editor = target_frame.locator('div[contenteditable="true"]').first
             if editor.count() > 0 and editor.is_visible():
@@ -252,6 +282,8 @@ class TikTokUploader:
                 logger.info("✅ تم كتابة وصف الفيديو والهاشتاغات في تيك توك.")
                 time.sleep(2)
                 page.screenshot(path=str(temp_dir / "tt_step2_desc.png"))
+            else:
+                logger.warning("⚠️ مربع وصف تيك توك لم يكن مرئياً للكتابة.")
         except Exception as e:
             logger.warning(f"تنبيه أثناء كتابة الوصف في تيك توك: {e}")
 
@@ -263,6 +295,7 @@ class TikTokUploader:
             pass
 
         for chk_wait in range(15):
+            _dismiss_popups()
             try:
                 music_checking = target_frame.evaluate("""() => {
                     const t = document.body ? document.body.innerText : '';
@@ -294,6 +327,7 @@ class TikTokUploader:
         published = False
         # الانتظار حتى يصبح زر النشر الحقيقي (post_video_button) جاهزاً
         for attempt in range(12):
+            _dismiss_popups()
             try:
                 post_btn = target_frame.locator('button[data-e2e="post_video_button"]')
                 if post_btn.count() == 0:
