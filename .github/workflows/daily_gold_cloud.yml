@@ -94,14 +94,57 @@ jobs:
             "need_tt=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           }
 
-      - name: Setup Python 3.12
+      - name: Connect Tailscale to Android Phone Bridge
+        if: steps.check_needed.outputs.should_run == 'true' && steps.check_needed.outputs.need_tt == 'true' && steps.check_needed.outputs.has_ts == 'true'
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+      - name: Check Android Phone Proxy Readiness
+        id: phone_probe
         if: steps.check_needed.outputs.should_run == 'true'
+        shell: pwsh
+        env:
+          NEED_YT: ${{ steps.check_needed.outputs.need_yt }}
+          NEED_TT: ${{ steps.check_needed.outputs.need_tt }}
+          MANUAL_COUNTRY: ${{ github.event.inputs.country }}
+          TIKTOK_PROXY_SERVER: ${{ secrets.TIKTOK_PROXY_SERVER }}
+        run: |
+          $phoneOnline = $false
+          if ($env:NEED_TT -eq "true" -and -not [string]::IsNullOrWhiteSpace($env:TIKTOK_PROXY_SERVER)) {
+            $srv = $env:TIKTOK_PROXY_SERVER -replace '^https?://', ''
+            $parts = $srv.Split(':')
+            $h = $parts[0]
+            $p = if ($parts.Length -gt 1) { [int]$parts[1] } else { 8080 }
+            for ($i = 0; $i -lt 2; $i++) {
+              try {
+                $client = New-Object System.Net.Sockets.TcpClient
+                $iar = $client.BeginConnect($h, $p, $null, $null)
+                $ok = $iar.AsyncWaitHandle.WaitOne(6000, $false)
+                if ($ok -and $client.Connected) {
+                  $phoneOnline = $true
+                  $client.EndConnect($iar)
+                  $client.Close()
+                  break
+                }
+                $client.Close()
+              } catch {}
+              Start-Sleep -Seconds 2
+            }
+          }
+          $needSetup = ($env:NEED_YT -eq "true") -or ($env:MANUAL_COUNTRY -eq "check") -or $phoneOnline
+          Write-Host "📡 phone_online=$phoneOnline | need_setup=$needSetup (need_yt=$env:NEED_YT)"
+          "phone_online=$($phoneOnline.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "need_setup=$($needSetup.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Setup Python 3.12
+        if: steps.check_needed.outputs.should_run == 'true' && steps.phone_probe.outputs.need_setup == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install Dependencies
-        if: steps.check_needed.outputs.should_run == 'true'
+        if: steps.check_needed.outputs.should_run == 'true' && steps.phone_probe.outputs.need_setup == 'true'
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
@@ -109,7 +152,7 @@ jobs:
           playwright install chromium
 
       - name: Restore Encrypted Credentials & Browser Sessions
-        if: steps.check_needed.outputs.should_run == 'true'
+        if: steps.check_needed.outputs.should_run == 'true' && steps.phone_probe.outputs.need_setup == 'true'
         shell: pwsh
         env:
           CLIENT_SECRETS_B64: ${{ secrets.CLIENT_SECRETS_B64 }}
@@ -147,14 +190,8 @@ jobs:
             python run_all_daily.py --platform youtube
           }
 
-      - name: Connect Tailscale to Android Phone Bridge
-        if: steps.check_needed.outputs.should_run == 'true' && steps.check_needed.outputs.need_tt == 'true' && steps.check_needed.outputs.has_ts == 'true'
-        uses: tailscale/github-action@v4
-        with:
-          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
-
       - name: Publish TikTok Videos via Android Phone Proxy
-        if: steps.check_needed.outputs.should_run == 'true' && steps.check_needed.outputs.need_tt == 'true'
+        if: steps.check_needed.outputs.should_run == 'true' && steps.check_needed.outputs.need_tt == 'true' && (steps.phone_probe.outputs.phone_online == 'true' || github.event.inputs.country == 'check')
         shell: pwsh
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
