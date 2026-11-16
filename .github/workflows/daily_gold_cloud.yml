@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       country:
-        description: 'اختر الفيديو المراد نشره الآن (auto / turkey / syria / both)'
+        description: 'اختر الفيديو المراد نشره الآن (auto / both / turkey / syria / turkey_tiktok / syria_tiktok / tiktok_only / check)'
         required: true
         default: 'auto'
         type: choice
@@ -17,6 +17,9 @@ on:
           - both
           - turkey
           - syria
+          - turkey_tiktok
+          - syria_tiktok
+          - tiktok_only
           - check
 
 permissions:
@@ -48,31 +51,44 @@ jobs:
           MANUAL_COUNTRY: ${{ github.event.inputs.country }}
         run: |
           if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and $env:MANUAL_COUNTRY -ne "auto") {
+            $mc = $env:MANUAL_COUNTRY
+            $needYt = ($mc -in @("both", "turkey", "syria"))
+            $needTt = ($mc -in @("both", "turkey", "syria", "turkey_tiktok", "syria_tiktok", "tiktok_only", "check"))
+            Write-Host "🔧 Manual dispatch ($mc): need_yt=$needYt, need_tt=$needTt"
             "should_run=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "need_yt=$($needYt.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "need_tt=$($needTt.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
             exit 0
           }
           $now = Get-Date
           $today = $now.ToString("yyyy-MM-dd")
           $hour = $now.Hour
-          $trDone = $false
-          $syDone = $false
+          $trYt = $false; $trTt = $false
+          $syYt = $false; $syTt = $false
           if (Test-Path "published_history.json") {
             try {
               $hist = Get-Content "published_history.json" -Raw -Encoding UTF8 | ConvertFrom-Json
               if ($hist.PSObject.Properties.Name -contains $today) {
-                $trDone = [bool]$hist.$today.turkey
-                $syDone = [bool]$hist.$today.syria
+                $d = $hist.$today
+                $trYt = if ($d.PSObject.Properties.Name -contains "turkey_yt") { [bool]$d.turkey_yt } else { [bool]$d.turkey }
+                $trTt = if ($d.PSObject.Properties.Name -contains "turkey_tt") { [bool]$d.turkey_tt } else { [bool]$d.turkey }
+                $syYt = if ($d.PSObject.Properties.Name -contains "syria_yt")  { [bool]$d.syria_yt }  else { [bool]$d.syria }
+                $syTt = if ($d.PSObject.Properties.Name -contains "syria_tt")  { [bool]$d.syria_tt }  else { [bool]$d.syria }
               }
             } catch {}
           }
-          $needTr = ($hour -ge 12) -and (-not $trDone)
-          $needSy = ($hour -ge 13) -and (-not $syDone)
-          if ($needTr -or $needSy) {
-            Write-Host "✅ Publishing needed: Turkey=$needTr, Syria=$needSy"
+          $needYt = (($hour -ge 12) -and (-not $trYt)) -or (($hour -ge 13) -and (-not $syYt))
+          $needTt = (($hour -ge 12) -and (-not $trTt)) -or (($hour -ge 13) -and (-not $syTt))
+          if ($needYt -or $needTt) {
+            Write-Host "✅ Publishing needed ($today Hour=$hour): need_yt=$needYt (TR=$trYt, SY=$syYt) | need_tt=$needTt (TR=$trTt, SY=$syTt)"
             "should_run=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "need_yt=$($needYt.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "need_tt=$($needTt.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           } else {
-            Write-Host "⏭️ Already published for current window ($today Hour=$hour, TR=$trDone, SY=$syDone). Skipping."
+            Write-Host "⏭️ Already published for current window ($today Hour=$hour). Skipping."
             "should_run=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "need_yt=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "need_tt=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           }
 
       - name: Setup Python 3.12
@@ -107,28 +123,59 @@ jobs:
             [IO.File]::WriteAllBytes("cloud_auth_state.json", [Convert]::FromBase64String($env:CLOUD_AUTH_STATE_B64))
           }
 
-      - name: Execute Daily Gold Video Generation & Multi-Platform Upload
-        if: steps.check_needed.outputs.should_run == 'true'
+      - name: Publish YouTube Shorts (Direct GitHub Internet)
+        if: steps.check_needed.outputs.should_run == 'true' && steps.check_needed.outputs.need_yt == 'true'
         shell: pwsh
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           MANUAL_COUNTRY: ${{ github.event.inputs.country }}
         run: |
-          if ($env:MANUAL_COUNTRY -eq "check") {
-            Write-Host "🔍 Cloud login verification (no publishing)..."
-            python cloud_check.py
-          } elseif ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and $env:MANUAL_COUNTRY -ne "auto") {
+          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and $env:MANUAL_COUNTRY -ne "auto") {
             if ($env:MANUAL_COUNTRY -eq "turkey" -or $env:MANUAL_COUNTRY -eq "both") {
-              Write-Host "🇹🇷 Running Turkey Gold Shorts..."
-              python make_gold_short.py
+              Write-Host "🇹🇷▶ Running Turkey YouTube..."
+              python make_gold_short.py --platform youtube
             }
             if ($env:MANUAL_COUNTRY -eq "syria" -or $env:MANUAL_COUNTRY -eq "both") {
-              Write-Host "🇸🇾 Running Syria Gold Shorts..."
-              python make_syria_gold_short.py
+              Write-Host "🇸🇾▶ Running Syria YouTube..."
+              python make_syria_gold_short.py --platform youtube
             }
           } else {
-            Write-Host "🤖 Running Smart Daily Orchestrator (run_all_daily.py)..."
-            python run_all_daily.py
+            Write-Host "🤖▶ Running Smart Daily YouTube..."
+            python run_all_daily.py --platform youtube
+          }
+
+      - name: Connect Tailscale to Android Phone Bridge
+        if: steps.check_needed.outputs.should_run == 'true' && steps.check_needed.outputs.need_tt == 'true' && secrets.TAILSCALE_AUTHKEY != ''
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+      - name: Publish TikTok Videos via Android Phone Proxy
+        if: steps.check_needed.outputs.should_run == 'true' && steps.check_needed.outputs.need_tt == 'true'
+        shell: pwsh
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          MANUAL_COUNTRY: ${{ github.event.inputs.country }}
+          TIKTOK_PROXY_SERVER: ${{ secrets.TIKTOK_PROXY_SERVER }}
+          TIKTOK_PROXY_USERNAME: ${{ secrets.TIKTOK_PROXY_USERNAME }}
+          TIKTOK_PROXY_PASSWORD: ${{ secrets.TIKTOK_PROXY_PASSWORD }}
+          TIKTOK_REQUIRE_PROXY: "1"
+        run: |
+          if ($env:MANUAL_COUNTRY -eq "check") {
+            Write-Host "🔍 Checking Android phone proxy + TikTok Studio session (no publishing)..."
+            python cloud_check.py
+          } elseif ($env:MANUAL_COUNTRY -eq "turkey_tiktok" -or $env:MANUAL_COUNTRY -eq "turkey") {
+            Write-Host "🇹🇷🎵 Running Turkey TikTok via Phone Proxy..."
+            python make_gold_short.py --platform tiktok
+          } elseif ($env:MANUAL_COUNTRY -eq "syria_tiktok" -or $env:MANUAL_COUNTRY -eq "syria") {
+            Write-Host "🇸🇾🎵 Running Syria TikTok via Phone Proxy..."
+            python make_syria_gold_short.py --platform tiktok
+          } elseif ($env:MANUAL_COUNTRY -eq "tiktok_only" -or $env:MANUAL_COUNTRY -eq "both") {
+            Write-Host "🎵 Running Both Countries TikTok via Phone Proxy (--force)..."
+            python run_all_daily.py --platform tiktok --force
+          } else {
+            Write-Host "🤖🎵 Running Smart Daily TikTok via Phone Proxy..."
+            python run_all_daily.py --platform tiktok
           }
 
       - name: Upload Proof Screenshots
