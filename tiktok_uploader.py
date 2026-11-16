@@ -22,9 +22,71 @@ logger = logging.getLogger("TikTokUploader")
 
 
 class TikTokUploader:
-    def __init__(self, project_dir: Path = None, **kwargs):
+    def __init__(
+        self,
+        project_dir: Path = None,
+        proxy_server: str = None,
+        proxy_username: str = None,
+        proxy_password: str = None,
+        **kwargs,
+    ):
         self.project_dir = project_dir or Path(__file__).parent.resolve()
         self.profile_dir = self.project_dir / "fb_browser_profile"
+
+        raw_srv = (proxy_server or os.environ.get("TIKTOK_PROXY_SERVER", "")).strip()
+        if raw_srv and "://" not in raw_srv:
+            raw_srv = f"http://{raw_srv}"
+        self.proxy_server = raw_srv.rstrip("/")
+        self.proxy_username = (proxy_username or os.environ.get("TIKTOK_PROXY_USERNAME", "")).strip()
+        self.proxy_password = (proxy_password or os.environ.get("TIKTOK_PROXY_PASSWORD", "")).strip()
+
+    def get_playwright_proxy(self) -> dict | None:
+        if not self.proxy_server:
+            return None
+        cfg = {"server": self.proxy_server}
+        if self.proxy_username:
+            cfg["username"] = self.proxy_username
+        if self.proxy_password:
+            cfg["password"] = self.proxy_password
+        return cfg
+
+    def get_requests_proxies(self) -> dict | None:
+        if not self.proxy_server:
+            return None
+        from urllib.parse import quote
+        scheme, rest = self.proxy_server.split("://", 1)
+        if self.proxy_username:
+            auth = f"{quote(self.proxy_username, safe='')}:{quote(self.proxy_password, safe='')}@"
+        else:
+            auth = ""
+        proxy_url = f"{scheme}://{auth}{rest}"
+        return {"http": proxy_url, "https": proxy_url}
+
+    def verify_proxy_connection(self, timeout: int = 12) -> dict | None:
+        """التحقق من أن بروكسي الهاتف متصل فعلاً وجلب الدولة والمدينة بدون الرفع عبر IP أمريكي"""
+        proxies = self.get_requests_proxies()
+        if not proxies:
+            return None
+        import requests
+        endpoints = [
+            "https://ipinfo.io/json",
+            "https://api.country.is/",
+            "https://api.ipify.org?format=json",
+        ]
+        for url in endpoints:
+            try:
+                r = requests.get(url, proxies=proxies, timeout=timeout)
+                if r.status_code == 200:
+                    data = r.json()
+                    country = data.get("country") or "?"
+                    city = data.get("city") or ""
+                    org = data.get("org") or ""
+                    ip = data.get("ip") or "?"
+                    logger.info(f"🌐 بروكسي الهاتف متصل بنجاح | IP={ip} | الدولة={country} | المدينة={city} | المزود={org}")
+                    return data
+            except Exception as e:
+                logger.warning(f"محاولة فحص البروكسي عبر {url}: {e}")
+        return None
 
     def _launch_browser(self, p, headless: bool = False):
         """تشغيل متصفح Chrome أو Edge مع ملف التعريف الدائم أو الجلسة السحابية (GitHub Actions)"""
@@ -32,36 +94,56 @@ class TikTokUploader:
         self.profile_dir.mkdir(exist_ok=True)
         cloud_state = self.project_dir / "cloud_auth_state.json"
 
+        proxy_cfg = self.get_playwright_proxy()
+        launch_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--start-maximized",
+            "--new-window",
+        ]
+        if proxy_cfg:
+            launch_args.extend([
+                "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+                "--enforce-webrtc-ip-permission-check",
+            ])
+
         ctx = None
         for channel in ["chrome", "msedge"]:
             try:
-                ctx = p.chromium.launch_persistent_context(
-                    user_data_dir=str(self.profile_dir),
-                    channel=channel,
-                    headless=headless,
-                    timezone_id="Europe/Istanbul",
-                    locale="ar-SY",
-                    args=[
-                        "--disable-blink-features=AutomationControlled",
-                        "--start-maximized",
-                        "--new-window",
-                    ],
-                    no_viewport=True,
-                )
+                ctx_kwargs = {
+                    "user_data_dir": str(self.profile_dir),
+                    "channel": channel,
+                    "headless": headless,
+                    "timezone_id": "Europe/Istanbul",
+                    "locale": "ar-SY",
+                    "args": launch_args,
+                    "no_viewport": True,
+                }
+                if proxy_cfg:
+                    ctx_kwargs["proxy"] = proxy_cfg
+                ctx = p.chromium.launch_persistent_context(**ctx_kwargs)
                 break
             except Exception as e:
                 logger.warning(f"تعذر تشغيل {channel}: {e}")
                 continue
 
         if ctx is None:
-            ctx = p.chromium.launch_persistent_context(
-                user_data_dir=str(self.profile_dir),
-                headless=headless,
-                timezone_id="Europe/Istanbul",
-                locale="ar-SY",
-                args=["--disable-blink-features=AutomationControlled", "--start-maximized"],
-                no_viewport=True,
-            )
+            fallback_args = ["--disable-blink-features=AutomationControlled", "--start-maximized"]
+            if proxy_cfg:
+                fallback_args.extend([
+                    "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+                    "--enforce-webrtc-ip-permission-check",
+                ])
+            ctx_kwargs = {
+                "user_data_dir": str(self.profile_dir),
+                "headless": headless,
+                "timezone_id": "Europe/Istanbul",
+                "locale": "ar-SY",
+                "args": fallback_args,
+                "no_viewport": True,
+            }
+            if proxy_cfg:
+                ctx_kwargs["proxy"] = proxy_cfg
+            ctx = p.chromium.launch_persistent_context(**ctx_kwargs)
 
         try:
             ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
@@ -126,8 +208,8 @@ class TikTokUploader:
 
         logger.info(f"عدد حقول رفع الملفات الموجودة في تيك توك: {file_inputs.count()}")
         file_inputs.first.set_input_files(str(video_path))
-        logger.info("✅ تم إرفاق ملف الفيديو في تيك توك بنجاح، جاري المعالجة...")
-        time.sleep(10)
+        logger.info("✅ تم إرفاق ملف الفيديو في تيك توك بنجاح، جاري انتظار اكتمال الرفع...")
+        time.sleep(8)
         page.screenshot(path=str(temp_dir / "tt_step1_uploaded.png"))
 
         # إغلاق أي نوافذ إرشادية منبثقة (Got it / حسناً)
@@ -139,6 +221,20 @@ class TikTokUploader:
                     time.sleep(1)
             except Exception:
                 pass
+
+        # انتظار اكتمال رفع الفيديو بنسبة 100% (مهم خاصة عبر بروكسي الهاتف)
+        for up_wait in range(36):
+            try:
+                still_uploading = target_frame.evaluate("""() => {
+                    const t = document.body ? document.body.innerText : '';
+                    return /متبقي|\\bUploading\\b|\\bleft\\b|\\b\\d{1,2}(\\.\\d+)?%/.test(t);
+                }""")
+                if not still_uploading:
+                    logger.info("✅ اكتمل رفع ملف الفيديو إلى خوادم تيك توك بنسبة 100%.")
+                    break
+            except Exception:
+                pass
+            time.sleep(3)
 
         # 2. كتابة وصف الفيديو والهاشتاغات
         try:
@@ -159,12 +255,27 @@ class TikTokUploader:
         except Exception as e:
             logger.warning(f"تنبيه أثناء كتابة الوصف في تيك توك: {e}")
 
-        # 3. التمرير لأسفل والضغط على زر (نشر / Post)
+        # 3. التمرير لأسفل والانتظار حتى يكتمل فحص حقوق الطبع للموسيقى (~30 ثانية) قبل النشر
         try:
             page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
             time.sleep(2)
         except Exception:
             pass
+
+        for chk_wait in range(15):
+            try:
+                music_checking = target_frame.evaluate("""() => {
+                    const t = document.body ? document.body.innerText : '';
+                    return /٣٠ ثانية|30 seconds|30s/i.test(t) && /قيد التقدم|Checking/i.test(t);
+                }""")
+                if not music_checking:
+                    logger.info("✅ انتهى فحص حقوق الطبع والنشر للموسيقى.")
+                    break
+                if chk_wait == 0:
+                    logger.info("⏳ انتظار اكتمال فحص حقوق الطبع للموسيقى قبل النشر (~30 ثانية)...")
+            except Exception:
+                break
+            time.sleep(3)
 
         # طباعة الأزرار المرئية للتشخيص
         try:
@@ -206,6 +317,9 @@ class TikTokUploader:
             time.sleep(3)
 
         page.screenshot(path=str(temp_dir / "tt_step3_post.png"))
+        if not published:
+            logger.error("❌ لم يصبح زر النشر جاهزاً في تيك توك (توقف الرفع قبل الإرسال).")
+            return None
 
         # التحقق من ظهور نافذة تأكيد إضافية مثل (نشر الآن / Post now / Continue to post)
         time.sleep(3)
@@ -222,18 +336,24 @@ class TikTokUploader:
         logger.info("⏳ جاري انتظار إتمام النشر على خوادم تيك توك (25 ثانية)...")
         time.sleep(25)
 
-        # محاولة تحويل الخصوصية من Private إلى Everyone في جدول المحتوى إن أمكن
+        # محاولة تحويل الخصوصية من Private / أنا فقط إلى Everyone / الجميع في جدول المحتوى إن أمكن
         try:
-            priv_btn = target_frame.locator('button:has-text("Private"), div[role="button"]:has-text("Private")').first
+            priv_btn = target_frame.locator(
+                'button:has-text("Private"), div[role="button"]:has-text("Private"), '
+                'button:has-text("أنا فقط"), div[role="button"]:has-text("أنا فقط")'
+            ).first
             if priv_btn.count() > 0 and priv_btn.is_visible():
                 priv_btn.click(timeout=3000)
                 time.sleep(1.5)
                 everyone_opt = target_frame.locator(
                     'div[role="option"]:has-text("Public"), '
                     'div[role="option"]:has-text("Everyone"), '
+                    'div[role="option"]:has-text("الجميع"), '
                     'li:has-text("Public"), '
+                    'li:has-text("الجميع"), '
                     'span:text-is("Public"), '
-                    'span:text-is("Everyone")'
+                    'span:text-is("Everyone"), '
+                    'span:text-is("الجميع")'
                 ).first
                 if everyone_opt.count() > 0 and everyone_opt.is_visible():
                     everyone_opt.click(timeout=3000)
@@ -338,9 +458,20 @@ class TikTokUploader:
         title: str = None,
         description: str = None,
     ) -> str:
-        """رفع الفيديو تلقائياً إلى تيك توك عبر المتصفح"""
+        """رفع الفيديو تلقائياً إلى تيك توك عبر المتصفح (وعبر بروكسي الهاتف إن وجد)"""
         if not video_path.exists():
             raise FileNotFoundError(f"ملف الفيديو غير موجود: {video_path}")
+
+        require_proxy = os.environ.get("TIKTOK_REQUIRE_PROXY", "").strip().lower() in ("1", "true", "yes")
+        if require_proxy and not self.proxy_server:
+            logger.warning("⚠️ تم طلب البروكسي الإلزامي لكن لم يُضبط عنوان البروكسي — تم تخطي تيك توك بأمان.")
+            return None
+
+        if self.proxy_server:
+            proxy_info = self.verify_proxy_connection(timeout=12)
+            if not proxy_info:
+                logger.warning("⚠️ تعذر الاتصال ببروكسي الهاتف حالياً — تم تأجيل رفع تيك توك لتجنب الرفع بـ IP السحابة الأمريكي.")
+                return None
 
         has_profile = self.profile_dir.exists() and any(self.profile_dir.iterdir())
         has_cloud_state = (self.project_dir / "cloud_auth_state.json").exists()
