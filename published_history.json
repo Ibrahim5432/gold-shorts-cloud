@@ -134,5 +134,13 @@
     "syria": true,
     "turkey_time": "12:03:10",
     "syria_time": "13:03:00"
+  },
+  "2026-11-17": {
+    "turkey_yt": true,
+    "turkey_yt_time": "12:02:12",
+    "turkey_tt": true,
+    "turkey": true,
+    "turkey_time": "12:05:33",
+    "turkey_tt_time": "12:05:33"
   }
 }
