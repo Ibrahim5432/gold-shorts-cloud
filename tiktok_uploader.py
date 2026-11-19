@@ -176,11 +176,24 @@ class TikTokUploader:
         temp_dir = self.project_dir / "temp"
         temp_dir.mkdir(exist_ok=True)
 
+        self._post_clicked = False
         logger.info(f"🚀 بدء رفع الفيديو تلقائياً إلى تيك توك: {video_path.name}")
         if "tiktokstudio/upload" not in page.url and "creator-center/upload" not in page.url:
-            logger.info("فتح صفحة رفع تيك توك (TikTok Studio)...")
-            page.goto("https://www.tiktok.com/tiktokstudio/upload", wait_until="domcontentloaded", timeout=60000)
-            time.sleep(7)
+            last_nav_err = None
+            for nav_attempt in range(1, 4):
+                try:
+                    logger.info(f"فتح صفحة رفع تيك توك (TikTok Studio)... (محاولة {nav_attempt}/3)")
+                    page.goto("https://www.tiktok.com/tiktokstudio/upload", wait_until="domcontentloaded", timeout=60000)
+                    last_nav_err = None
+                    break
+                except Exception as nav_err:
+                    last_nav_err = nav_err
+                    logger.warning(f"⚠️ تعثر لحظي أثناء فتح TikTok Studio (محاولة {nav_attempt}/3): {nav_err}")
+                    if nav_attempt < 3:
+                        time.sleep(7)
+            if last_nav_err is not None:
+                raise last_nav_err
+            time.sleep(8)
 
         logger.info(f"الرابط الحالي لتيك توك: {page.url} | العنوان: {page.title()}")
 
@@ -195,16 +208,30 @@ class TikTokUploader:
         except Exception:
             pass
 
-        # 1. اختيار ملف الفيديو
-        # في حال كان داخل iframe أو في الصفحة الرئيسية
+        # 1. انتظار ظهور حقل رفع الملف في الصفحة الرئيسية أو داخل أي iframe (مهم مع بطء بروكسي الهاتف)
         target_frame = page
         file_inputs = page.locator('input[type="file"]')
-        if file_inputs.count() == 0:
-            for frame in page.frames:
-                if frame.locator('input[type="file"]').count() > 0:
-                    target_frame = frame
-                    file_inputs = frame.locator('input[type="file"]')
+        for fi_wait in range(18):
+            try:
+                if page.locator('input[type="file"]').count() > 0:
+                    target_frame = page
+                    file_inputs = page.locator('input[type="file"]')
                     break
+                found_in_frame = False
+                for frame in page.frames:
+                    if frame.locator('input[type="file"]').count() > 0:
+                        target_frame = frame
+                        file_inputs = frame.locator('input[type="file"]')
+                        found_in_frame = True
+                        break
+                if found_in_frame:
+                    break
+                if fi_wait == 9:
+                    logger.info("🔄 إعادة تحميل صفحة TikTok Studio لظهور حقل رفع الملف...")
+                    page.reload(wait_until="domcontentloaded", timeout=60000)
+            except Exception as e:
+                logger.warning(f"تنبيه أثناء انتظار حقل رفع الملف ({fi_wait + 1}): {e}")
+            time.sleep(3)
 
         def _dismiss_popups():
             for sel in [
@@ -234,7 +261,7 @@ class TikTokUploader:
                 pass
 
         logger.info(f"عدد حقول رفع الملفات الموجودة في تيك توك: {file_inputs.count()}")
-        file_inputs.first.set_input_files(str(video_path))
+        file_inputs.first.set_input_files(str(video_path), timeout=60000)
         logger.info("✅ تم إرفاق ملف الفيديو في تيك توك بنجاح، جاري انتظار تحميل محرر الفيديو...")
 
         # انتظار ظهور محرر TikTok Studio الفعلي (مربع الوصف وزر النشر) قبل إغلاق النوافذ أو الكتابة
@@ -342,6 +369,7 @@ class TikTokUploader:
                     if not is_disabled:
                         btn.scroll_into_view_if_needed()
                         time.sleep(1)
+                        self._post_clicked = True
                         btn.click(timeout=5000)
                         published = True
                         logger.info("🚀 تم الضغط على زر النشر الحقيقي (post_video_button) في تيك توك!")
@@ -515,16 +543,29 @@ class TikTokUploader:
 
         from playwright.sync_api import sync_playwright
 
-        with sync_playwright() as p:
-            context = self._launch_browser(p, headless=False)
+        for session_try in range(1, 3):
+            self._post_clicked = False
             try:
-                page = context.pages[0] if context.pages else context.new_page()
-                return self._perform_tiktok_upload_on_page(page, video_path, description=description)
-            finally:
-                try:
-                    context.close()
-                except Exception:
-                    pass
+                with sync_playwright() as p:
+                    context = self._launch_browser(p, headless=False)
+                    try:
+                        page = context.pages[0] if context.pages else context.new_page()
+                        res = self._perform_tiktok_upload_on_page(page, video_path, description=description)
+                        if res or self._post_clicked:
+                            return res
+                    finally:
+                        try:
+                            context.close()
+                        except Exception:
+                            pass
+            except Exception as e:
+                logger.warning(f"⚠️ محاولة جلسة تيك توك ({session_try}/2) تعثرت: {e}")
+                if self._post_clicked or session_try >= 2:
+                    raise
+            if session_try < 2:
+                logger.info("⏳ إعادة المحاولة تلقائياً بعد 10 ثوانٍ لإراحة اتصال بروكسي الهاتف...")
+                time.sleep(10)
+        return None
 
 
 if __name__ == "__main__":
