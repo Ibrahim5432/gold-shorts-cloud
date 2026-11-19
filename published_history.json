@@ -171,9 +171,10 @@
     "turkey_time": "13:05:08",
     "syria_yt": true,
     "syria_yt_time": "13:02:05",
-    "syria_tt": false,
-    "syria": false,
-    "syria_time": "13:05:26",
-    "turkey_tt_time": "13:05:08"
+    "syria_tt": true,
+    "syria": true,
+    "syria_time": "20:00:29",
+    "turkey_tt_time": "13:05:08",
+    "syria_tt_time": "20:00:29"
   }
 }
