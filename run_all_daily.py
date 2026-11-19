@@ -131,7 +131,7 @@ def main():
                 history[today_key] = today_status
                 save_history(history)
                 logger.info(f"✅ حالة تركيا المحدثة: YT={today_status['turkey_yt']} | TT={today_status['turkey_tt']}")
-                time.sleep(5)
+                time.sleep(12 if want_tr_tt else 5)
             except Exception as e:
                 logger.error(f"❌ خطأ في مهمة تركيا: {e}")
 
