@@ -116,21 +116,31 @@ def main():
             logger.info("=" * 60)
             try:
                 tr_engine = FixedGoldShortsEngine()
-                res = tr_engine.run(platform=tr_plat)
+                res = tr_engine.run(
+                    platform=tr_plat,
+                    yt_url=today_status.get("turkey_yt_url"),
+                    tg_msg_id=today_status.get("turkey_tg_msg_id"),
+                )
                 pub = res.get("results", {}) if isinstance(res, dict) else {}
                 if want_tr_yt and pub.get("youtube"):
                     today_status["turkey_yt"] = True
                     today_status["turkey_yt_time"] = datetime.now().strftime("%H:%M:%S")
+                if pub.get("youtube_url"):
+                    today_status["turkey_yt_url"] = pub["youtube_url"]
+                if pub.get("telegram_msg_id"):
+                    today_status["turkey_tg_msg_id"] = pub["telegram_msg_id"]
                 if want_tr_tt and pub.get("tiktok"):
                     today_status["turkey_tt"] = True
                     today_status["turkey_tt_time"] = datetime.now().strftime("%H:%M:%S")
+                if pub.get("tiktok_url"):
+                    today_status["turkey_tt_url"] = pub["tiktok_url"]
                 today_status["turkey_yt"] = bool(today_status.get("turkey_yt", tr_yt_done))
                 today_status["turkey_tt"] = bool(today_status.get("turkey_tt", tr_tt_done))
                 today_status["turkey"] = bool(today_status["turkey_yt"] and today_status["turkey_tt"])
                 today_status["turkey_time"] = datetime.now().strftime("%H:%M:%S")
                 history[today_key] = today_status
                 save_history(history)
-                logger.info(f"✅ حالة تركيا المحدثة: YT={today_status['turkey_yt']} | TT={today_status['turkey_tt']}")
+                logger.info(f"✅ حالة تركيا المحدثة: YT={today_status['turkey_yt']} | TT={today_status['turkey_tt']} | TG={today_status.get('turkey_tg_msg_id')}")
                 time.sleep(12 if want_tr_tt else 5)
             except Exception as e:
                 logger.error(f"❌ خطأ في مهمة تركيا: {e}")
@@ -146,21 +156,31 @@ def main():
             logger.info("=" * 60)
             try:
                 sy_engine = SyriaGoldShortsEngine()
-                res = sy_engine.run(platform=sy_plat)
+                res = sy_engine.run(
+                    platform=sy_plat,
+                    yt_url=today_status.get("syria_yt_url"),
+                    tg_msg_id=today_status.get("syria_tg_msg_id"),
+                )
                 pub = res.get("results", {}) if isinstance(res, dict) else {}
                 if want_sy_yt and pub.get("youtube"):
                     today_status["syria_yt"] = True
                     today_status["syria_yt_time"] = datetime.now().strftime("%H:%M:%S")
+                if pub.get("youtube_url"):
+                    today_status["syria_yt_url"] = pub["youtube_url"]
+                if pub.get("telegram_msg_id"):
+                    today_status["syria_tg_msg_id"] = pub["telegram_msg_id"]
                 if want_sy_tt and pub.get("tiktok"):
                     today_status["syria_tt"] = True
                     today_status["syria_tt_time"] = datetime.now().strftime("%H:%M:%S")
+                if pub.get("tiktok_url"):
+                    today_status["syria_tt_url"] = pub["tiktok_url"]
                 today_status["syria_yt"] = bool(today_status.get("syria_yt", sy_yt_done))
                 today_status["syria_tt"] = bool(today_status.get("syria_tt", sy_tt_done))
                 today_status["syria"] = bool(today_status["syria_yt"] and today_status["syria_tt"])
                 today_status["syria_time"] = datetime.now().strftime("%H:%M:%S")
                 history[today_key] = today_status
                 save_history(history)
-                logger.info(f"✅ حالة سوريا المحدثة: YT={today_status['syria_yt']} | TT={today_status['syria_tt']}")
+                logger.info(f"✅ حالة سوريا المحدثة: YT={today_status['syria_yt']} | TT={today_status['syria_tt']} | TG={today_status.get('syria_tg_msg_id')}")
             except Exception as e:
                 logger.error(f"❌ خطأ في مهمة سوريا: {e}")
 
