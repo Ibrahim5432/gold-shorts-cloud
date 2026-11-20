@@ -39,6 +39,8 @@ facebook:
 tiktok:
   auto_upload: true
   video_background: true
+  # طريقة النشر على تيك توك: "buffer" (Buffer Official API بدون هاتف) أو "playwright" (عبر بروكسي الهاتف)
+  upload_method: "buffer"
 
 # --- النشر التلقائي على قناة Telegram العامة ---
 telegram:
