@@ -55,6 +55,7 @@ from bidi.algorithm import get_display
 from youtube_uploader import YouTubeUploader
 from facebook_uploader import FacebookUploader
 from tiktok_uploader import TikTokUploader
+from telegram_publisher import TelegramPublisher
 
 # ============================================
 # إعداد المسارات
@@ -769,10 +770,25 @@ class FixedGoldShortsEngine:
         self.assembler = VideoAssembler(fps=self.fps)
         self.yt_uploader = YouTubeUploader(SCRIPT_DIR)
 
-    def publish_video(self, video_path: Path, prices: dict, platform: str = "all") -> dict:
-        """إدارة النشر التلقائي إلى يوتيوب وفيسبوك وتيك توك مع دعم فصل المنصات"""
+    def publish_video(
+        self,
+        video_path: Path,
+        prices: dict,
+        platform: str = "all",
+        yt_url: str = None,
+        tg_msg_id: int = None,
+    ) -> dict:
+        """إدارة النشر التلقائي إلى يوتيوب وفيسبوك وتيك توك وتيليجرام مع دعم فصل المنصات"""
         today_str = prices.get("date", date.today().strftime("%Y/%m/%d"))
-        results = {"youtube": False, "facebook": False, "tiktok": False}
+        results = {
+            "youtube": False,
+            "youtube_url": yt_url,
+            "facebook": False,
+            "tiktok": False,
+            "tiktok_url": None,
+            "telegram": False,
+            "telegram_msg_id": tg_msg_id,
+        }
 
         # 1. يوتيوب
         yt_cfg = self.config.get("youtube", {})
@@ -780,10 +796,11 @@ class FixedGoldShortsEngine:
             try:
                 title = yt_cfg.get("title_template", "أسعار الذهب اليوم في تركيا {date} ₺ #shorts").format(date=today_str)
                 privacy = yt_cfg.get("privacy_status", "public")
-                yt_url = self.yt_uploader.upload_video(video_path, title=title, privacy_status=privacy)
-                if yt_url:
-                    logger.info(f"✅ تم النشر التلقائي على YouTube: {yt_url}")
+                uploaded_yt = self.yt_uploader.upload_video(video_path, title=title, privacy_status=privacy)
+                if uploaded_yt:
+                    logger.info(f"✅ تم النشر التلقائي على YouTube: {uploaded_yt}")
                     results["youtube"] = True
+                    results["youtube_url"] = uploaded_yt
             except FileNotFoundError as e:
                 logger.warning(f"⚠️ تنبيه يوتيوب: {e}")
             except Exception as e:
@@ -820,12 +837,48 @@ class FixedGoldShortsEngine:
                 if tt_url:
                     logger.info(f"✅ تم النشر التلقائي على TikTok: {tt_url}")
                     results["tiktok"] = True
+                    results["tiktok_url"] = tt_url
             except Exception as e:
                 logger.error(f"❌ خطأ أثناء رفع الفيديو إلى تيك توك: {e}")
 
+        # 4. قناة تيليجرام العامة (تُنشر مع جولة يوتيوب المباشرة وتُحدّث تلقائياً برابط تيك توك فور نشره)
+        tg_cfg = self.config.get("telegram", {})
+        if tg_cfg.get("auto_upload", False):
+            tg = TelegramPublisher(self.config)
+            if tg.is_configured():
+                try:
+                    if platform in ("all", "youtube", "telegram") and not results["telegram_msg_id"]:
+                        card_path = TEMP_DIR / "turkey_tg_card.png"
+                        total_frames = int(self.fps * self.duration)
+                        self.frame_gen.render_frame(prices, total_frames - 1, total_frames).save(str(card_path), "PNG")
+                        msg_id = tg.publish_gold_update(
+                            country_code="turkey",
+                            prices=prices,
+                            photo_path=card_path,
+                            video_path=video_path if video_path.exists() else None,
+                            yt_url=results["youtube_url"],
+                            tt_url=results["tiktok_url"],
+                            duration=int(self.duration),
+                        )
+                        card_path.unlink(missing_ok=True)
+                        if msg_id:
+                            results["telegram"] = True
+                            results["telegram_msg_id"] = msg_id
+                    elif platform == "tiktok" and results["tiktok"] and results["telegram_msg_id"]:
+                        if tg.update_caption_with_links(
+                            message_id=results["telegram_msg_id"],
+                            country_code="turkey",
+                            prices=prices,
+                            yt_url=results["youtube_url"],
+                            tt_url=results["tiktok_url"],
+                        ):
+                            results["telegram"] = True
+                except Exception as e:
+                    logger.error(f"❌ خطأ أثناء النشر/التحديث على تيليجرام: {e}")
+
         return results
 
-    def run(self, platform: str = "all") -> dict:
+    def run(self, platform: str = "all", yt_url: str = None, tg_msg_id: int = None) -> dict:
         logger.info(f"🚀 بدء إنتاج فيديو الذهب اليومي (تركيا | platform={platform})...")
 
         # 1. جلب الأسعار
@@ -850,7 +903,7 @@ class FixedGoldShortsEngine:
         else:
             final_path = output_file
 
-        pub_res = self.publish_video(final_path, prices, platform=platform)
+        pub_res = self.publish_video(final_path, prices, platform=platform, yt_url=yt_url, tg_msg_id=tg_msg_id)
         return {"video": str(final_path), "results": pub_res}
 
 
