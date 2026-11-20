@@ -175,18 +175,20 @@ jobs:
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           MANUAL_COUNTRY: ${{ github.event.inputs.country }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         run: |
           if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and $env:MANUAL_COUNTRY -ne "auto") {
             if ($env:MANUAL_COUNTRY -eq "turkey" -or $env:MANUAL_COUNTRY -eq "both") {
-              Write-Host "🇹🇷▶ Running Turkey YouTube..."
+              Write-Host "🇹🇷▶ Running Turkey YouTube + Telegram..."
               python make_gold_short.py --platform youtube
             }
             if ($env:MANUAL_COUNTRY -eq "syria" -or $env:MANUAL_COUNTRY -eq "both") {
-              Write-Host "🇸🇾▶ Running Syria YouTube..."
+              Write-Host "🇸🇾▶ Running Syria YouTube + Telegram..."
               python make_syria_gold_short.py --platform youtube
             }
           } else {
-            Write-Host "🤖▶ Running Smart Daily YouTube..."
+            Write-Host "🤖▶ Running Smart Daily YouTube + Telegram..."
             python run_all_daily.py --platform youtube
           }
 
@@ -200,6 +202,8 @@ jobs:
           TIKTOK_PROXY_USERNAME: ${{ secrets.TIKTOK_PROXY_USERNAME }}
           TIKTOK_PROXY_PASSWORD: ${{ secrets.TIKTOK_PROXY_PASSWORD }}
           TIKTOK_REQUIRE_PROXY: "1"
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         run: |
           if ($env:MANUAL_COUNTRY -eq "check") {
             Write-Host "🔍 Checking Android phone proxy + TikTok Studio session (no publishing)..."
