@@ -1,10 +1,7 @@
 name: Daily Gold Shorts Cloud Publisher (Turkey & Syria)
 
 on:
-  schedule:
-    # نبضات متقاربة كل 5 دقائق من 12:00 ظهراً حتى 03:55 عصراً بتوقيت تركيا وسوريا (09:00 - 12:55 UTC)
-    # للقضاء نهائياً على أي تأخير من مؤقت GitHub الداخلي (مع فحص ذكي فوري يتجاوز التشغيل خلال ثانية واحدة إذا تم النشر)
-    - cron: '*/5 9-12 * * *'
+  # يتم التشغيل الدقيق عبر cron-job.org (12:00 تركيا، 13:00 سوريا، 13:25 و14:25 تعويض) بدون تأخير مؤقت GitHub
   workflow_dispatch:
     inputs:
       country:
@@ -37,10 +34,13 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          ref: main
 
-      - name: Set Timezone to UTC+3 (Turkey/Syria)
+      - name: Sync Latest Published History & Set Timezone
         shell: pwsh
         run: |
+          git pull --ff-only origin main
           tzutil /s "Turkey Standard Time"
 
       - name: Check if Publishing is Needed
@@ -240,5 +240,10 @@ jobs:
             git config user.name "GoldCloudBot"
             git config user.email "bot@users.noreply.github.com"
             git add published_history.json
-            git diff --staged --quiet || (git commit -m "Update daily published_history.json" && git push)
+            git diff --staged --quiet
+            if ($LASTEXITCODE -ne 0) {
+              git commit -m "Update daily published_history.json"
+              git pull --rebase origin main
+              git push origin main
+            }
           }
