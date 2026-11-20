@@ -50,6 +50,7 @@ from make_gold_short import (
 from youtube_uploader import YouTubeUploader
 from facebook_uploader import FacebookUploader
 from tiktok_uploader import TikTokUploader
+from buffer_uploader import BufferTikTokUploader
 from telegram_publisher import TelegramPublisher
 
 logger = logging.getLogger("SyriaGoldShorts")
@@ -378,10 +379,15 @@ class SyriaGoldShortsEngine:
                     country_code="syria",
                     duration=self.duration,
                 )
-                tt_uploader = TikTokUploader(SCRIPT_DIR)
-                tt_url = tt_uploader.upload_video(tt_video_path, description=tt_desc)
+                tt_method = (tt_cfg.get("upload_method") or "playwright").strip().lower()
+                if tt_method == "buffer":
+                    buf_uploader = BufferTikTokUploader()
+                    tt_url = buf_uploader.upload_video(tt_video_path, description=tt_desc)
+                else:
+                    tt_uploader = TikTokUploader(SCRIPT_DIR)
+                    tt_url = tt_uploader.upload_video(tt_video_path, description=tt_desc)
                 if tt_url:
-                    logger.info(f"✅ تم نشر فيديو سوريا تلقائياً على TikTok: {tt_url}")
+                    logger.info(f"✅ تم نشر فيديو سوريا تلقائياً على TikTok ({tt_method}): {tt_url}")
                     results["tiktok"] = True
                     results["tiktok_url"] = tt_url
             except Exception as e:
