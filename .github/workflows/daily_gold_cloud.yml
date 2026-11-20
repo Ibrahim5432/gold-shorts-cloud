@@ -53,11 +53,19 @@ jobs:
         run: |
           $hasTs = -not [string]::IsNullOrWhiteSpace($env:HAS_TS)
           "has_ts=$($hasTs.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $ttMethod = "playwright"
+          if (Test-Path "config.yaml") {
+            $m = Select-String -Path "config.yaml" -Pattern '^\s*upload_method:\s*"?([a-zA-Z0-9_-]+)"?' | Select-Object -First 1
+            if ($m -and $m.Matches.Groups.Count -gt 1) {
+              $ttMethod = $m.Matches.Groups[1].Value.ToLower()
+            }
+          }
+          "tt_method=$ttMethod" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and $env:MANUAL_COUNTRY -ne "auto") {
             $mc = $env:MANUAL_COUNTRY
             $needYt = ($mc -in @("both", "turkey", "syria"))
             $needTt = ($mc -in @("both", "turkey", "syria", "turkey_tiktok", "syria_tiktok", "tiktok_only", "check"))
-            Write-Host "🔧 Manual dispatch ($mc): need_yt=$needYt, need_tt=$needTt, has_ts=$hasTs"
+            Write-Host "🔧 Manual dispatch ($mc): need_yt=$needYt, need_tt=$needTt, tt_method=$ttMethod, has_ts=$hasTs"
             "should_run=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
             "need_yt=$($needYt.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
             "need_tt=$($needTt.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
@@ -83,7 +91,7 @@ jobs:
           $needYt = (($hour -ge 12) -and (-not $trYt)) -or (($hour -ge 13) -and (-not $syYt))
           $needTt = (($hour -ge 12) -and (-not $trTt)) -or (($hour -ge 13) -and (-not $syTt))
           if ($needYt -or $needTt) {
-            Write-Host "✅ Publishing needed ($today Hour=$hour): need_yt=$needYt (TR=$trYt, SY=$syYt) | need_tt=$needTt (TR=$trTt, SY=$syTt)"
+            Write-Host "✅ Publishing needed ($today Hour=$hour, tt_method=$ttMethod): need_yt=$needYt (TR=$trYt, SY=$syYt) | need_tt=$needTt (TR=$trTt, SY=$syTt)"
             "should_run=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
             "need_yt=$($needYt.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
             "need_tt=$($needTt.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
@@ -95,7 +103,7 @@ jobs:
           }
 
       - name: Connect Tailscale to Android Phone Bridge
-        if: steps.check_needed.outputs.should_run == 'true' && steps.check_needed.outputs.need_tt == 'true' && steps.check_needed.outputs.has_ts == 'true'
+        if: steps.check_needed.outputs.should_run == 'true' && steps.check_needed.outputs.need_tt == 'true' && steps.check_needed.outputs.tt_method != 'buffer' && steps.check_needed.outputs.has_ts == 'true'
         uses: tailscale/github-action@v4
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
@@ -107,9 +115,16 @@ jobs:
         env:
           NEED_YT: ${{ steps.check_needed.outputs.need_yt }}
           NEED_TT: ${{ steps.check_needed.outputs.need_tt }}
+          TT_METHOD: ${{ steps.check_needed.outputs.tt_method }}
           MANUAL_COUNTRY: ${{ github.event.inputs.country }}
           TIKTOK_PROXY_SERVER: ${{ secrets.TIKTOK_PROXY_SERVER }}
         run: |
+          if ($env:TT_METHOD -eq "buffer") {
+            Write-Host "🚀 TikTok upload_method=buffer (Official API) — skipping phone proxy check."
+            "phone_online=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "need_setup=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
           $phoneOnline = $false
           if ($env:NEED_TT -eq "true" -and -not [string]::IsNullOrWhiteSpace($env:TIKTOK_PROXY_SERVER)) {
             $srv = $env:TIKTOK_PROXY_SERVER -replace '^https?://', ''
@@ -146,10 +161,15 @@ jobs:
       - name: Install Dependencies
         if: steps.check_needed.outputs.should_run == 'true' && steps.phone_probe.outputs.need_setup == 'true'
         shell: pwsh
+        env:
+          TT_METHOD: ${{ steps.check_needed.outputs.tt_method }}
+          MANUAL_COUNTRY: ${{ github.event.inputs.country }}
         run: |
           python -m pip install --upgrade pip
           pip install numpy lxml imageio-ffmpeg requests beautifulsoup4 pillow arabic-reshaper python-bidi pyyaml google-api-python-client google-auth-oauthlib google-auth-httplib2 playwright
-          playwright install chromium
+          if ($env:TT_METHOD -ne "buffer" -or $env:MANUAL_COUNTRY -eq "check") {
+            playwright install chromium
+          }
 
       - name: Restore Encrypted Credentials & Browser Sessions
         if: steps.check_needed.outputs.should_run == 'true' && steps.phone_probe.outputs.need_setup == 'true'
@@ -192,12 +212,14 @@ jobs:
             python run_all_daily.py --platform youtube
           }
 
-      - name: Publish TikTok Videos via Android Phone Proxy
+      - name: Publish TikTok Videos (Buffer Official API or Phone Proxy)
         if: steps.check_needed.outputs.should_run == 'true' && steps.check_needed.outputs.need_tt == 'true' && (steps.phone_probe.outputs.phone_online == 'true' || github.event.inputs.country == 'check')
         shell: pwsh
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           MANUAL_COUNTRY: ${{ github.event.inputs.country }}
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          BUFFER_TIKTOK_CHANNEL_ID: ${{ secrets.BUFFER_TIKTOK_CHANNEL_ID }}
           TIKTOK_PROXY_SERVER: ${{ secrets.TIKTOK_PROXY_SERVER }}
           TIKTOK_PROXY_USERNAME: ${{ secrets.TIKTOK_PROXY_USERNAME }}
           TIKTOK_PROXY_PASSWORD: ${{ secrets.TIKTOK_PROXY_PASSWORD }}
