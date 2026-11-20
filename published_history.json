@@ -180,13 +180,15 @@
   "2026-11-20": {
     "turkey_yt": true,
     "turkey_yt_time": "12:02:10",
-    "turkey_tt": false,
-    "turkey": false,
-    "turkey_time": "12:02:10",
+    "turkey_tt": true,
+    "turkey": true,
+    "turkey_time": "20:29:11",
     "syria_yt": true,
     "syria_yt_time": "13:02:35",
-    "syria_tt": false,
-    "syria": false,
-    "syria_time": "13:02:35"
+    "syria_tt": true,
+    "syria": true,
+    "syria_time": "20:31:03",
+    "turkey_tt_time": "20:29:11",
+    "syria_tt_time": "20:31:03"
   }
 }
