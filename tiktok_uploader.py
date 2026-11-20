@@ -424,8 +424,21 @@ class TikTokUploader:
             pass
 
         page.screenshot(path=str(temp_dir / "tt_step4_done.png"))
+
+        posted_url = "https://www.tiktok.com/@as3aral"
+        try:
+            found_url = page.evaluate("""() => {
+                const a = document.querySelector('a[href*="/video/"]');
+                return a ? a.href : null;
+            }""")
+            if found_url and "/video/" in found_url:
+                posted_url = found_url
+                logger.info(f"🔗 رابط فيديو تيك توك المباشر: {posted_url}")
+        except Exception:
+            pass
+
         logger.info("🎉 اكتملت عملية النشر على تيك توك بنجاح!")
-        return "https://www.tiktok.com/"
+        return posted_url
 
     def setup_login(self, video_to_upload: Path = None):
         """فتح المتصفح لتسجيل الدخول إلى تيك توك لمرة واحدة ثم رفع أول فيديو مباشرة"""
