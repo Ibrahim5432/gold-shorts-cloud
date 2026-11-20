@@ -39,3 +39,9 @@ facebook:
 tiktok:
   auto_upload: true
   video_background: true
+
+# --- النشر التلقائي على قناة Telegram العامة ---
+telegram:
+  auto_upload: true
+  channel_id: "@as3aral"
+  tiktok_profile_url: "https://www.tiktok.com/@as3aral"
