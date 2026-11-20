@@ -50,6 +50,7 @@ from make_gold_short import (
 from youtube_uploader import YouTubeUploader
 from facebook_uploader import FacebookUploader
 from tiktok_uploader import TikTokUploader
+from telegram_publisher import TelegramPublisher
 
 logger = logging.getLogger("SyriaGoldShorts")
 
@@ -296,10 +297,25 @@ class SyriaGoldShortsEngine:
         self.assembler = VideoAssembler(fps=self.fps)
         self.yt_uploader = YouTubeUploader(SCRIPT_DIR)
 
-    def publish_video(self, video_path: Path, prices: dict, platform: str = "all") -> dict:
-        """النشر التلقائي لفيديو أسعار الذهب في سوريا على يوتيوب وفيسبوك وتيك توك مع دعم فصل المنصات"""
+    def publish_video(
+        self,
+        video_path: Path,
+        prices: dict,
+        platform: str = "all",
+        yt_url: str = None,
+        tg_msg_id: int = None,
+    ) -> dict:
+        """النشر التلقائي لفيديو أسعار الذهب في سوريا على يوتيوب وفيسبوك وتيك توك وتيليجرام مع دعم فصل المنصات"""
         today_str = prices.get("date", date.today().strftime("%Y/%m/%d"))
-        results = {"youtube": False, "facebook": False, "tiktok": False}
+        results = {
+            "youtube": False,
+            "youtube_url": yt_url,
+            "facebook": False,
+            "tiktok": False,
+            "tiktok_url": None,
+            "telegram": False,
+            "telegram_msg_id": tg_msg_id,
+        }
 
         yt_title = f"أسعار الذهب اليوم في سوريا {today_str} ل.س #shorts #gold"
         yt_desc = (
@@ -322,16 +338,17 @@ class SyriaGoldShortsEngine:
         if platform in ("all", "youtube") and yt_cfg.get("auto_upload", False):
             try:
                 privacy = yt_cfg.get("privacy_status", "public")
-                yt_url = self.yt_uploader.upload_video(
+                uploaded_yt = self.yt_uploader.upload_video(
                     video_path,
                     title=yt_title,
                     description=yt_desc,
                     tags=yt_tags,
                     privacy_status=privacy,
                 )
-                if yt_url:
-                    logger.info(f"✅ تم نشر فيديو سوريا تلقائياً على YouTube: {yt_url}")
+                if uploaded_yt:
+                    logger.info(f"✅ تم نشر فيديو سوريا تلقائياً على YouTube: {uploaded_yt}")
                     results["youtube"] = True
+                    results["youtube_url"] = uploaded_yt
             except Exception as e:
                 logger.error(f"❌ خطأ أثناء رفع فيديو سوريا إلى يوتيوب: {e}")
 
@@ -366,12 +383,55 @@ class SyriaGoldShortsEngine:
                 if tt_url:
                     logger.info(f"✅ تم نشر فيديو سوريا تلقائياً على TikTok: {tt_url}")
                     results["tiktok"] = True
+                    results["tiktok_url"] = tt_url
             except Exception as e:
                 logger.error(f"❌ خطأ أثناء رفع فيديو سوريا إلى تيك توك: {e}")
 
+        # 4. قناة تيليجرام العامة
+        tg_cfg = self.config.get("telegram", {})
+        if tg_cfg.get("auto_upload", False):
+            tg = TelegramPublisher(self.config)
+            if tg.is_configured():
+                try:
+                    if platform in ("all", "youtube", "telegram") and not results["telegram_msg_id"]:
+                        card_path = TEMP_DIR / "syria_tg_card.png"
+                        total_frames = int(self.fps * self.duration)
+                        self.frame_gen.render_frame(prices, total_frames - 1, total_frames).save(str(card_path), "PNG")
+                        msg_id = tg.publish_gold_update(
+                            country_code="syria",
+                            prices=prices,
+                            photo_path=card_path,
+                            video_path=video_path if video_path.exists() else None,
+                            yt_url=results["youtube_url"],
+                            tt_url=results["tiktok_url"],
+                            duration=int(self.duration),
+                        )
+                        card_path.unlink(missing_ok=True)
+                        if msg_id:
+                            results["telegram"] = True
+                            results["telegram_msg_id"] = msg_id
+                    elif platform == "tiktok" and results["tiktok"] and results["telegram_msg_id"]:
+                        if tg.update_caption_with_links(
+                            message_id=results["telegram_msg_id"],
+                            country_code="syria",
+                            prices=prices,
+                            yt_url=results["youtube_url"],
+                            tt_url=results["tiktok_url"],
+                        ):
+                            results["telegram"] = True
+                except Exception as e:
+                    logger.error(f"❌ خطأ أثناء النشر/التحديث على تيليجرام لسوريا: {e}")
+
         return results
 
-    def run(self, preview_only: bool = False, skip_publish: bool = False, platform: str = "all") -> dict:
+    def run(
+        self,
+        preview_only: bool = False,
+        skip_publish: bool = False,
+        platform: str = "all",
+        yt_url: str = None,
+        tg_msg_id: int = None,
+    ) -> dict:
         logger.info(f"🚀 بدء إنتاج فيديو أسعار الذهب اليومي في سوريا (platform={platform})...")
 
         # 1. جلب الأسعار الحية لسوريا
@@ -398,7 +458,11 @@ class SyriaGoldShortsEngine:
                 import time as _t
                 if (_t.time() - output_file.stat().st_mtime) < 900:
                     logger.info(f"⚡ استخدام ملف الفيديو الجاهز حديثاً: {output_file}")
-                    pub_res = self.publish_video(output_file, prices, platform=platform) if not skip_publish else {}
+                    pub_res = (
+                        self.publish_video(output_file, prices, platform=platform, yt_url=yt_url, tg_msg_id=tg_msg_id)
+                        if not skip_publish
+                        else {}
+                    )
                     return {"video": str(output_file), "results": pub_res}
 
             audio_path = self.audio_mgr.get_audio_path(self.duration, TEMP_DIR)
@@ -411,7 +475,11 @@ class SyriaGoldShortsEngine:
         else:
             final_path = output_file
 
-        pub_res = self.publish_video(final_path, prices, platform=platform) if not skip_publish else {}
+        pub_res = (
+            self.publish_video(final_path, prices, platform=platform, yt_url=yt_url, tg_msg_id=tg_msg_id)
+            if not skip_publish
+            else {}
+        )
         return {"video": str(final_path), "results": pub_res}
 
 
