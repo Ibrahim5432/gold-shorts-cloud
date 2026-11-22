@@ -210,5 +210,16 @@
     "syria_time": "13:03:24",
     "syria_tt_time": "13:03:24",
     "syria_tt_url": "https://tiktok.com/@as3aral/video/7710561877843250438"
+  },
+  "2026-11-22": {
+    "turkey_yt": true,
+    "turkey_yt_time": "12:01:34",
+    "turkey_yt_url": "https://youtube.com/shorts/YqfHyZGNfZc",
+    "turkey_tg_msg_id": 10,
+    "turkey_tt": true,
+    "turkey": true,
+    "turkey_time": "12:03:25",
+    "turkey_tt_time": "12:03:25",
+    "turkey_tt_url": "https://tiktok.com/@as3aral/video/7710918632007585045"
   }
 }
