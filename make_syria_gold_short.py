@@ -400,19 +400,25 @@ class SyriaGoldShortsEngine:
             if tg.is_configured():
                 try:
                     if platform in ("all", "youtube", "telegram") and not results["telegram_msg_id"]:
-                        card_path = TEMP_DIR / "syria_tg_card.png"
-                        total_frames = int(self.fps * self.duration)
-                        self.frame_gen.render_frame(prices, total_frames - 1, total_frames).save(str(card_path), "PNG")
+                        card_path = None
+                        send_video = None
+                        if tg.post_mode != "text_only":
+                            card_path = TEMP_DIR / "syria_tg_card.png"
+                            total_frames = int(self.fps * self.duration)
+                            self.frame_gen.render_frame(prices, total_frames - 1, total_frames).save(str(card_path), "PNG")
+                            if tg.post_mode == "media_group" and video_path.exists():
+                                send_video = video_path
                         msg_id = tg.publish_gold_update(
                             country_code="syria",
                             prices=prices,
                             photo_path=card_path,
-                            video_path=video_path if video_path.exists() else None,
+                            video_path=send_video,
                             yt_url=results["youtube_url"],
                             tt_url=results["tiktok_url"],
                             duration=int(self.duration),
                         )
-                        card_path.unlink(missing_ok=True)
+                        if card_path:
+                            card_path.unlink(missing_ok=True)
                         if msg_id:
                             results["telegram"] = True
                             results["telegram_msg_id"] = msg_id
