@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 أداة النشر التلقائي إلى قناة تيليجرام العامة عبر Telegram Bot API الرسمي
-ترسل صورة جدول الأسعار + الفيديو (15 ثانية) في منشور واحد أنيق مع الأسعار النصية
-وروابط يوتيوب وتيك توك، مع دعم تحديث الرابط تلقائياً عند اكتمال رفع تيك توك.
+تدعم النشر النصي النظيف (الأسعار كتابة مع روابط يوتيوب وتيك توك فقط) أو مع صورة/فيديو
+حسب إعداد post_mode في config.yaml، مع تحديث رابط تيك توك تلقائياً فور اكتمال الرفع.
 """
 
 import os
@@ -27,6 +27,8 @@ class TelegramPublisher:
             or tg_cfg.get("channel_id", "")
         ).strip()
         self.tiktok_profile_url = (tg_cfg.get("tiktok_profile_url") or "").strip()
+        self.post_mode = (tg_cfg.get("post_mode") or "text_only").strip().lower()
+        self.disable_link_preview = bool(tg_cfg.get("disable_link_preview", True))
 
     def is_configured(self) -> bool:
         return bool(self.bot_token and self.channel_id)
@@ -105,8 +107,15 @@ class TelegramPublisher:
             return None
 
         caption = self.build_caption(country_code, prices, yt_url=yt_url, tt_url=tt_url)
-        has_photo = bool(photo_path and Path(photo_path).exists())
-        has_video = bool(video_path and Path(video_path).exists())
+        if self.post_mode == "text_only":
+            has_photo = False
+            has_video = False
+        elif self.post_mode == "photo_only":
+            has_photo = bool(photo_path and Path(photo_path).exists())
+            has_video = False
+        else:
+            has_photo = bool(photo_path and Path(photo_path).exists())
+            has_video = bool(video_path and Path(video_path).exists())
 
         try:
             if has_photo and has_video:
@@ -197,14 +206,14 @@ class TelegramPublisher:
                     "chat_id": self.channel_id,
                     "text": caption,
                     "parse_mode": "HTML",
-                    "disable_web_page_preview": False,
+                    "disable_web_page_preview": self.disable_link_preview,
                 },
                 timeout=30,
             )
             data = r.json()
             if data.get("ok"):
                 msg_id = data["result"].get("message_id")
-                logger.info(f"✅ تم نشر الرسالة على قناة تيليجرام ({self.channel_id}) | message_id={msg_id}")
+                logger.info(f"✅ تم نشر الرسالة النصية على قناة تيليجرام ({self.channel_id}) | message_id={msg_id}")
                 return msg_id
             logger.error(f"❌ فشل sendMessage على تيليجرام: {data}")
             return None
@@ -220,12 +229,26 @@ class TelegramPublisher:
         yt_url: str = None,
         tt_url: str = None,
     ) -> bool:
-        """تحديث وصف منشور تيليجرام المنشور مسبقاً لإضافة رابط فيديو تيك توك المباشر بدون إرسال منشور ثانٍ"""
+        """تحديث منشور تيليجرام المنشور مسبقاً لإضافة رابط فيديو تيك توك المباشر بدون إرسال منشور ثانٍ"""
         if not self.is_configured() or not message_id:
             return False
         caption = self.build_caption(country_code, prices, yt_url=yt_url, tt_url=tt_url)
-        try:
-            r = requests.post(
+
+        def _try_edit_text():
+            return requests.post(
+                self._api("editMessageText"),
+                json={
+                    "chat_id": self.channel_id,
+                    "message_id": int(message_id),
+                    "text": caption,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": self.disable_link_preview,
+                },
+                timeout=30,
+            ).json()
+
+        def _try_edit_caption():
+            return requests.post(
                 self._api("editMessageCaption"),
                 json={
                     "chat_id": self.channel_id,
@@ -234,15 +257,28 @@ class TelegramPublisher:
                     "parse_mode": "HTML",
                 },
                 timeout=30,
+            ).json()
+
+        try:
+            primary, fallback = (
+                (_try_edit_text, _try_edit_caption)
+                if self.post_mode == "text_only"
+                else (_try_edit_caption, _try_edit_text)
             )
-            data = r.json()
+            data = primary()
             if data.get("ok"):
                 logger.info(f"✅ تم تحديث منشور تيليجرام ({message_id}) بالرابط الجديد بنجاح!")
                 return True
-            if "message is not modified" in str(data.get("description", "")).lower():
+            desc = str(data.get("description", "")).lower()
+            if "message is not modified" in desc:
                 return True
-            logger.warning(f"⚠️ تنبيه أثناء تحديث وصف تيليجرام ({message_id}): {data}")
+            if "no text in the message" in desc or "no caption in the message" in desc:
+                data = fallback()
+                if data.get("ok") or "message is not modified" in str(data.get("description", "")).lower():
+                    logger.info(f"✅ تم تحديث منشور تيليجرام ({message_id}) عبر الطريقة البديلة بنجاح!")
+                    return True
+            logger.warning(f"⚠️ تنبيه أثناء تحديث منشور تيليجرام ({message_id}): {data}")
             return False
         except Exception as e:
-            logger.warning(f"⚠️ تعذر تحديث وصف تيليجرام: {e}")
+            logger.warning(f"⚠️ تعذر تحديث منشور تيليجرام: {e}")
             return False
