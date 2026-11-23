@@ -47,3 +47,6 @@ telegram:
   auto_upload: true
   channel_id: "@as3aral"
   tiktok_profile_url: "https://www.tiktok.com/@as3aral"
+  # نمط المنشور: "text_only" (الأسعار كتابة + روابط المقاطع فقط) | "photo_only" (صورة + كتابة) | "media_group" (صورة + فيديو + كتابة)
+  post_mode: "text_only"
+  disable_link_preview: true
