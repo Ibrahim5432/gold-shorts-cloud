@@ -39,6 +39,10 @@ facebook:
 tiktok:
   auto_upload: true
   video_background: true
+  # مدة فيديو تيك توك بالثواني (8 ثوانٍ لرفع نسبة الإكمال وإعادة المشاهدة - يوتيوب يبقى 15 ثانية)
+  duration: 8
+  # توقيت التقاط صورة الغلاف على تيك توك (بالملي ثانية) بعد اكتمال ظهور كل العيارات
+  thumbnail_offset_ms: 4500
   # طريقة النشر على تيك توك: "buffer" (Buffer Official API بدون هاتف) أو "playwright" (عبر بروكسي الهاتف)
   upload_method: "buffer"
 
