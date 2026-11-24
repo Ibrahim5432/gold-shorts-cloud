@@ -269,6 +269,22 @@
     "syria": true,
     "syria_time": "13:03:07",
     "syria_tt_time": "13:03:07",
-    "syria_tt_url": "https://tiktok.com/@as3aral/video/7711675663803010305"
+    "syria_tt_url": "https://tiktok.com/@as3aral/video/7711675663803010305",
+    "turkey_prices": {
+      "date": "2026/11/24",
+      "24k": 5891.51,
+      "22k": 5400.56,
+      "21k": 5155.08,
+      "18k": 4418.64,
+      "ounce_usd": 3614.85
+    },
+    "syria_prices": {
+      "date": "2026/11/24",
+      "24k": 17741.0,
+      "22k": 16251.0,
+      "21k": 15524.0,
+      "18k": 13306.0,
+      "ounce_usd": 3624.44
+    }
   }
 }
