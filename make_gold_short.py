@@ -359,6 +359,65 @@ class PerfectFrameGenerator:
         return "أسعار الذهب في تركيا"
 
 
+def load_previous_day_prices(country_code: str, today_key: str = None) -> dict | None:
+    """قراءة أسعار آخر يوم سابق من published_history.json لحساب الفرق اليومي (▲ / ▼)"""
+    hist_file = SCRIPT_DIR / "published_history.json"
+    if not hist_file.exists():
+        return None
+    try:
+        hist = json.loads(hist_file.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    today_k = today_key or date.today().strftime("%Y-%m-%d")
+    price_key = f"{country_code}_prices"
+    for d_key in sorted(hist.keys(), reverse=True):
+        if d_key < today_k:
+            entry = hist.get(d_key) or {}
+            p = entry.get(price_key)
+            if isinstance(p, dict) and p.get("21k"):
+                return p
+    return None
+
+
+def compute_daily_change(country_code: str, prices: dict, prev_prices: dict | None) -> dict | None:
+    """حساب اتجاه ومقدار التغيّر اليومي لعيار 21 مقارنةً بسعر آخر يوم سابق"""
+    if not prev_prices:
+        return None
+    try:
+        cur_21 = float(prices.get("21k", 0) or 0)
+        prev_21 = float(prev_prices.get("21k", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    if cur_21 <= 0 or prev_21 <= 0:
+        return None
+
+    diff = cur_21 - prev_21
+    pct = (diff / prev_21) * 100.0
+    flat_threshold = 5.0 if country_code == "syria" else 0.50
+    if diff >= flat_threshold:
+        direction = "up"
+    elif diff <= -flat_threshold:
+        direction = "down"
+    else:
+        direction = "flat"
+
+    if country_code == "syria":
+        diff_abs = f"{int(round(abs(diff))):,}"
+        sign = "+" if diff >= 0 else "-"
+        syp_unit = ar("ل.س")
+        diff_display = f"{sign}{diff_abs} {syp_unit} ({sign}{abs(pct):.2f}%)"
+    else:
+        sign = "+" if diff >= 0 else "-"
+        diff_display = f"{sign}{abs(diff):,.2f} ₺ ({sign}{abs(pct):.2f}%)"
+
+    return {
+        "direction": direction,
+        "diff": diff,
+        "pct": pct,
+        "diff_display": diff_display,
+    }
+
+
 def render_glass_cards_overlay(
     title_ar: str,
     prices: dict,
@@ -367,90 +426,149 @@ def render_glass_cards_overlay(
     revealed_count: int,
     width: int = 1080,
     height: int = 1920,
+    country_code: str = "turkey",
+    prev_prices: dict | None = None,
 ) -> Image.Image:
-    """طبقة شفافة (RGBA) ببطاقات زجاجية داكنة في المنطقة الآمنة لتيك توك (بعيداً عن شريط تيك توك العلوي والوصف السفلي)"""
+    """طبقة شفافة (RGBA) ببطاقات زجاجية داكنة في المنطقة الآمنة لتيك توك مع شارة الفرق اليومي وسؤال تفاعلي"""
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     cx = width // 2
 
-    # خفض العنوان قليلاً ليقع تحت شريط تيك توك العلوي (Following / For You) مباشرةً
-    draw.rounded_rectangle([80, 210, width - 80, 420], radius=28, fill=(8, 12, 22, 180), outline=(212, 175, 55, 150), width=2)
+    # 1. بطاقة العنوان + التاريخ + شارة الفرق عن الأمس (▲ / ▼) تحت شريط تيك توك العلوي مباشرةً
+    draw.rounded_rectangle([80, 185, width - 80, 442], radius=28, fill=(8, 12, 22, 192), outline=(212, 175, 55, 165), width=2)
     draw.line([(80, 45), (width - 80, 45)], fill=(212, 175, 55, 180), width=2)
 
-    y_top = 285
-    draw.text((cx, y_top), ar(title_ar), fill=(255, 215, 0, 255), font=get_font_fn(62), anchor="mm")
+    draw.text((cx, 248), ar(title_ar), fill=(255, 215, 0, 255), font=get_font_fn(60), anchor="mm")
     today_str = prices.get("date", date.today().strftime("%Y/%m/%d"))
-    draw.text((cx, y_top + 74), today_str, fill=(230, 238, 248, 255), font=get_font_fn(38), anchor="mm")
-    draw.line([(cx - 190, 412), (cx + 190, 412)], fill=(212, 175, 55, 210), width=2)
+    draw.text((cx, 314), today_str, fill=(225, 234, 246, 255), font=get_font_fn(36), anchor="mm")
 
-    y_start = 465
-    spacing = 195
-    card_h = 152
+    change_info = compute_daily_change(country_code, prices, prev_prices)
+    px1, py1, px2, py2 = 120, 356, width - 120, 420
+    pm_y = (py1 + py2) // 2
+
+    if change_info and change_info["direction"] == "up":
+        draw.rounded_rectangle([px1, py1, px2, py2], radius=20, fill=(10, 56, 36, 232), outline=(0, 238, 145, 230), width=2)
+        # مثلث صعود أخضر نقي (Vector Polygon بدون اعتماد على خطوط الإيموجي)
+        tri = [(px2 - 36, pm_y - 12), (px2 - 50, pm_y + 11), (px2 - 22, pm_y + 11)]
+        draw.polygon(tri, fill=(0, 255, 157, 255))
+        draw.text((px2 - 66, pm_y), ar("ارتفاع عيار 21 عن الأمس"), fill=(195, 255, 225, 255), font=get_font_fn(29), anchor="rm")
+        draw.text((px1 + 34, pm_y), change_info["diff_display"], fill=(0, 255, 157, 255), font=get_font_fn(30), anchor="lm")
+    elif change_info and change_info["direction"] == "down":
+        draw.rounded_rectangle([px1, py1, px2, py2], radius=20, fill=(64, 16, 24, 232), outline=(255, 92, 110, 230), width=2)
+        # مثلث هبوط أحمر نقي
+        tri = [(px2 - 36, pm_y + 12), (px2 - 50, pm_y - 11), (px2 - 22, pm_y - 11)]
+        draw.polygon(tri, fill=(255, 98, 114, 255))
+        draw.text((px2 - 66, pm_y), ar("انخفاض عيار 21 عن الأمس"), fill=(255, 210, 215, 255), font=get_font_fn(29), anchor="rm")
+        draw.text((px1 + 34, pm_y), change_info["diff_display"], fill=(255, 112, 126, 255), font=get_font_fn(30), anchor="lm")
+    elif change_info and change_info["direction"] == "flat":
+        draw.rounded_rectangle([px1, py1, px2, py2], radius=20, fill=(38, 32, 16, 225), outline=(245, 200, 66, 215), width=2)
+        draw.ellipse([px2 - 44, pm_y - 8, px2 - 28, pm_y + 8], fill=(255, 215, 0, 255))
+        draw.text((cx, pm_y), ar("استقرار عيار 21 مقارنةً بسعر الأمس"), fill=(255, 232, 140, 255), font=get_font_fn(30), anchor="mm")
+    else:
+        draw.rounded_rectangle([px1 + 90, py1, px2 - 90, py2], radius=20, fill=(24, 28, 42, 210), outline=(212, 175, 55, 175), width=2)
+        draw.text((cx, pm_y), ar("التحديث اليومي المباشر لأسعار اليوم"), fill=(255, 226, 120, 255), font=get_font_fn(30), anchor="mm")
+
+    # 2. البطاقات الخمس للأسعار مع إبراز بصري خفيف لعيار 21 الأكثر بحثاً
+    y_start = 468
+    spacing = 186
+    card_h = 148
     x1, x2 = 80, width - 80
 
     for idx, (label, price_str, accent_color) in enumerate(rows_data[:revealed_count]):
         y1 = y_start + (idx * spacing)
         y2 = y1 + card_h
+        is_21k = "21" in label
 
-        # بطاقة زجاجية داكنة تسمح بمرور إضاءة وحركة خلفية الذهب مع بقاء النصوص فائقة الوضوح
         draw.rounded_rectangle(
             [x1, y1, x2, y2],
             radius=24,
-            fill=(10, 14, 24, 196),
-            outline=(212, 175, 55, 165),
-            width=2,
+            fill=(14, 19, 32, 212) if is_21k else (10, 14, 24, 196),
+            outline=(255, 215, 0, 235) if is_21k else (212, 175, 55, 165),
+            width=3 if is_21k else 2,
         )
         draw.rounded_rectangle(
-            [x2 - 12, y1 + 22, x2 - 4, y2 - 22],
+            [x2 - 12, y1 + 20, x2 - 4, y2 - 20],
             radius=4,
             fill=(*accent_color, 255),
         )
 
         label_font = get_font_fn(38) if len(label) > 10 else get_font_fn(46)
-        draw.text((x2 - 45, y1 + card_h // 2), ar(label), fill=(255, 255, 255, 255), font=label_font, anchor="rm")
+        draw.text(
+            (x2 - 45, y1 + card_h // 2),
+            ar(label),
+            fill=(255, 230, 128, 255) if is_21k else (255, 255, 255, 255),
+            font=label_font,
+            anchor="rm",
+        )
 
         price_font = get_font_fn(54) if len(price_str) > 11 else get_font_fn(58)
         draw.text((x1 + 45, y1 + card_h // 2), price_str, fill=(0, 255, 157, 255), font=price_font, anchor="lm")
 
-    # شارة سفلية شفافة أعلى منطقة الوصف والأزرار السفلية لتيك توك
-    draw.rounded_rectangle([cx - 210, 1445, cx + 210, 1505], radius=24, fill=(8, 12, 22, 180), outline=(212, 175, 55, 120), width=1)
-    draw.text((cx, 1475), ar("تحديث يومي فوري"), fill=(225, 232, 242, 245), font=get_font_fn(28), anchor="mm")
+    # 3. شارة تفاعلية سفلية متجددة يومياً (تحفّز التعليقات والحفظ بدون إيموجي مكسور)
+    ordinal = date.today().toordinal() + (1 if country_code == "syria" else 0)
+    ctas = [
+        "هل تتوقع صعود الذهب غداً أم هبوطه؟ اكتب بالتعليقات",
+        "هل السعر مناسب للشراء اليوم؟ شاركنا رأيك",
+        "احفظ الفيديو للرجوع إليه عند الشراء أو البيع",
+        "تابع الحساب ليصلك سعر الذهب يومياً قبل الجميع",
+    ]
+    cta_text = ctas[ordinal % len(ctas)]
+    draw.rounded_rectangle([95, 1412, width - 95, 1492], radius=24, fill=(14, 18, 30, 218), outline=(255, 215, 0, 200), width=2)
+    draw.text((cx, 1452), ar(cta_text), fill=(255, 230, 128, 255), font=get_font_fn(30), anchor="mm")
 
     return img
 
 
-def build_tiktok_caption(country_code: str, prices: dict) -> str:
-    """إنشاء وصف متنوع ومخصص لتيك توك (بالأسعار الحية وبدون وسوم منصات أخرى)"""
+def build_tiktok_caption(country_code: str, prices: dict, prev_prices: dict | None = None) -> str:
+    """إنشاء وصف تشويقي تفاعلي لتيك توك (بدون حرق السعر في الوصف لرفع مدة المشاهدة والتعليقات)"""
     today_str = prices.get("date", date.today().strftime("%Y/%m/%d"))
     ordinal = date.today().toordinal()
+    change_info = compute_daily_change(country_code, prices, prev_prices)
+    direction = change_info["direction"] if change_info else None
 
     if country_code == "syria":
-        p24 = f"{int(round(prices.get('24k', 0))):,}"
-        p21 = f"{int(round(prices.get('21k', 0))):,}"
-        hooks = [
-            f"📊 نشرة أسعار الذهب اليوم في سوريا ({today_str}) | عيار 21: {p21} ل.س",
-            f"🟡 تحديث مباشر لأسعار الذهب في سوريا ({today_str}) — عيار 24: {p24} ل.س | عيار 21: {p21} ل.س",
-            f"✨ سعر الذهب اليوم في دمشق وحلب ({today_str}) لجميع العيارات بالليرة السورية الجديدة",
-            f"🔔 أسعار الذهب والأونصة اليوم في سوريا ({today_str}) لحظة بلحظة",
-        ]
+        if direction == "up":
+            hooks = [
+                f"📈 ارتفاع جديد في أسعار الذهب اليوم في سوريا ({today_str})! هل يستمر الصعود غداً؟ اكتب توقعك 👇",
+                f"🔥 صعود جديد لغرام الذهب اليوم في دمشق وحلب ({today_str}) — هل الوقت مناسب للبيع أم الانتظار؟ 👇",
+            ]
+        elif direction == "down":
+            hooks = [
+                f"📉 تراجع جديد في أسعار الذهب اليوم في سوريا ({today_str})! هل تعتبر اليوم فرصة للشراء؟ شاركنا رأيك 👇",
+                f"⬇️ انخفاض غرام الذهب اليوم في دمشق وحلب ({today_str}) — احفظ الفيديو للرجوع إليه عند الشراء 🔖",
+            ]
+        else:
+            hooks = [
+                f"📊 كم وصل سعر عيار 21 اليوم في سوريا ({today_str})؟ شاهد التحديث الكامل واكتب توقعك لغداً 👇",
+                f"✨ أسعار الذهب اليوم في دمشق وحلب ({today_str}) بالليرة السورية الجديدة — احفظ الفيديو 🔖",
+                f"🔔 حركة أسعار الذهب والأونصة اليوم في سوريا ({today_str}) — هل تتوقع صعوداً أم هبوطاً غداً؟ 👇",
+            ]
         tags_pool = [
-            "#ذهب #أسعار_الذهب #سوريا #دمشق #حلب #الليرة_السورية #اكسبلور #تيك_توك",
-            "#سعر_الذهب_في_سوريا #ذهب_سوريا #اسعار_الذهب #دمشق #سوريا #فوريو #اقتصاد",
-            "#اسعار_الذهب_اليوم #سوريا #الليرة_السورية #عيار_21 #عيار_24 #اكسبلور #gold",
+            "#ذهب #أسعار_الذهب #سوريا #دمشق #حلب #الليرة_السورية #عيار_21 #اكسبلور",
+            "#سعر_الذهب_في_سوريا #ذهب_سوريا #اسعار_الذهب #دمشق #سوريا #اقتصاد #فوريو",
+            "#اسعار_الذهب_اليوم #سوريا #الليرة_السورية #عيار_21 #عيار_24 #ذهب #gold",
         ]
     else:
-        p24 = f"{prices.get('24k', 0):,.2f}"
-        p21 = f"{prices.get('21k', 0):,.2f}"
-        hooks = [
-            f"📊 نشرة أسعار الذهب اليوم في تركيا ({today_str}) | عيار 21: {p21} ₺",
-            f"🟡 تحديث أسعار الذهب في تركيا ({today_str}) — عيار 24: {p24} ₺ | عيار 21: {p21} ₺",
-            f"✨ أسعار غرام الذهب اليوم في إسطنبول وتركيا ({today_str}) بالليرة التركية والدولار",
-            f"🔔 السعر الفوري للذهب في تركيا ({today_str}) عيار 24 و22 و21 و18 والأونصة",
-        ]
+        if direction == "up":
+            hooks = [
+                f"📈 ارتفاع جديد في أسعار الذهب اليوم في تركيا ({today_str})! هل يستمر الصعود غداً أم يتراجع؟ اكتب توقعك 👇",
+                f"🔥 صعود جديد لغرام الذهب اليوم في إسطنبول وتركيا ({today_str}) — هل الوقت مناسب للبيع أم الانتظار؟ 👇",
+            ]
+        elif direction == "down":
+            hooks = [
+                f"📉 تراجع جديد في أسعار الذهب اليوم في تركيا ({today_str})! هل اليوم فرصة للشراء أم ننتظر أكثر؟ 👇",
+                f"⬇️ انخفاض غرام الذهب اليوم في إسطنبول وتركيا ({today_str}) — احفظ الفيديو للرجوع إليه عند الشراء 🔖",
+            ]
+        else:
+            hooks = [
+                f"📊 كم وصل سعر عيار 21 اليوم في تركيا ({today_str})؟ شاهد التحديث الكامل واكتب توقعك لغداً 👇",
+                f"✨ أسعار غرام الذهب اليوم في إسطنبول وتركيا ({today_str}) — احفظ الفيديو للرجوع إليه عند الشراء 🔖",
+                f"🔔 حركة أسعار الذهب والأونصة اليوم في تركيا ({today_str}) — هل تتوقع صعوداً أم هبوطاً غداً؟ 👇",
+            ]
         tags_pool = [
-            "#ذهب #أسعار_الذهب #تركيا #اسطنبول #الليرة_التركية #اكسبلور #تيك_توك",
-            "#سعر_الذهب_في_تركيا #اسعار_الذهب #تركيا #اسطنبول #فوريو #اقتصاد #gold",
-            "#اسعار_الذهب_اليوم #تركيا #عيار_21 #عيار_24 #اكسبلور #السعودية #سوريا",
+            "#ذهب #أسعار_الذهب #تركيا #اسطنبول #الليرة_التركية #عيار_21 #اكسبلور",
+            "#سعر_الذهب_في_تركيا #اسعار_الذهب #تركيا #اسطنبول #اقتصاد #فوريو #gold",
+            "#اسعار_الذهب_اليوم #تركيا #عيار_21 #عيار_24 #الليرة_التركية #ذهب #اكسبلور",
         ]
 
     hook = hooks[ordinal % len(hooks)]
@@ -615,9 +733,11 @@ class VideoAssembler:
         output_path: Path,
         bg_video_path: Path,
         country_offset: int = 0,
-        duration: float = 15.0,
+        duration: float = 8.0,
+        country_code: str = "turkey",
+        prev_prices: dict | None = None,
     ) -> Path:
-        """إنشاء نسخة تيك توك بخلفية فيديو متحركة حقيقية وبطاقات زجاجية شفافة (لتيك توك فقط)"""
+        """إنشاء نسخة تيك توك (8 ثوانٍ بتدرّج ذكي + شارة الفرق اليومي + خلفية فيديو متحركة)"""
         ffmpeg_bin = self.find_ffmpeg()
         eco_dir = TEMP_DIR / f"tt_bg_{output_path.stem}"
         eco_dir.mkdir(parents=True, exist_ok=True)
@@ -635,18 +755,21 @@ class VideoAssembler:
                 revealed_count=step_num + 1,
                 width=1080,
                 height=1920,
+                country_code=country_code,
+                prev_prices=prev_prices,
             )
             step_path = eco_dir / f"step_{step_num}.png"
             overlay_img.save(str(step_path), "PNG", compress_level=1)
             step_files.append(step_path)
 
+        # ظهور تدريجي أنيق خلال أول 2.90 ثانية (عيار 21 يظهر عند 1.30s والأونصة عند 2.90s ثم ثبات 5.10s)
         concat_file = eco_dir / "overlay_concat.txt"
         lines = [
-            f"file '{step_files[0].as_posix()}'", "duration 0.20",
-            f"file '{step_files[1].as_posix()}'", "duration 0.20",
-            f"file '{step_files[2].as_posix()}'", "duration 0.20",
-            f"file '{step_files[3].as_posix()}'", "duration 0.20",
-            f"file '{step_files[4].as_posix()}'", f"duration {max(1.0, duration - 0.80):.2f}",
+            f"file '{step_files[0].as_posix()}'", "duration 0.65",
+            f"file '{step_files[1].as_posix()}'", "duration 0.65",
+            f"file '{step_files[2].as_posix()}'", "duration 0.85",
+            f"file '{step_files[3].as_posix()}'", "duration 0.75",
+            f"file '{step_files[4].as_posix()}'", f"duration {max(1.0, duration - 2.90):.2f}",
             f"file '{step_files[4].as_posix()}'",
         ]
         concat_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -676,14 +799,14 @@ class VideoAssembler:
         # تخطي المقدمة الداكنة في molten_gold ليبدأ المقطع وصورة الغلاف بإضاءة ذهبية ساطعة منذ الإطار الأول
         bg_seek = ["-ss", "5.0"] if "molten" in bg_video_path.name.lower() else []
 
-        # نقطة ضوئية ذهبية تنساب بنعومة فوق منطقة الشارة السفلية طوال 15 ثانية لإبقاء كل إطار حياً
+        # نقطة ضوئية ذهبية تنساب بنعومة أسفل الشارة التفاعلية طوال مدة الفيديو لإبقاء كل إطار حياً
         dur_str = f"{duration:.1f}"
         filter_complex = (
             f"[0:v]{','.join(bg_filters)}[bg];"
             f"[1:v]fps={self.fps},format=rgba[ov];"
             f"[bg][ov]overlay=0:0:shortest=1[comp];"
             f"color=c=0xFFD700:s=80x5,format=rgba[glow];"
-            f"[comp][glow]overlay=x='80+(840*t/{dur_str})':y=1525:shortest=1,format=yuv420p[vout]"
+            f"[comp][glow]overlay=x='95+(810*t/{dur_str})':y=1512:shortest=1,format=yuv420p[vout]"
         )
 
         cmd = [
@@ -722,11 +845,13 @@ def prepare_tiktok_video(
     country_code: str,
     duration: float = 15.0,
 ) -> tuple[Path, str]:
-    """تجهيز نسخة فيديو تيك توك (خلفية فيديو متحركة + أنشودة تيك توك + وصف متنوع) بدون المساس بنسخة يوتيوب"""
+    """تجهيز نسخة فيديو تيك توك (8 ثوانٍ بتدرّج ذكي + شارة الفرق عن الأمس + وصف تشويقي تفاعلي) بدون المساس بيوتيوب"""
     tt_cfg = config.get("tiktok", {})
-    tt_audio = audio_mgr.get_tiktok_audio_path() or audio_mgr.get_audio_path(duration, TEMP_DIR)
+    tt_duration = float(tt_cfg.get("duration", 8.0))
+    prev_prices = load_previous_day_prices(country_code)
+    tt_audio = audio_mgr.get_tiktok_audio_path() or audio_mgr.get_audio_path(tt_duration, TEMP_DIR)
     tt_out = base_video_path.with_name(f"{base_video_path.stem}_tiktok.mp4")
-    caption = build_tiktok_caption(country_code, prices)
+    caption = build_tiktok_caption(country_code, prices, prev_prices=prev_prices)
 
     bg_files = sorted(TIKTOK_BG_DIR.glob("*.mp4")) if TIKTOK_BG_DIR.exists() else []
     use_video_bg = tt_cfg.get("video_background", True) and len(bg_files) > 0
@@ -735,7 +860,9 @@ def prepare_tiktok_video(
         country_offset = 1 if country_code == "syria" else 0
         bg_idx = (date.today().toordinal() * 2 + country_offset) % len(bg_files)
         chosen_bg = bg_files[bg_idx]
-        logger.info(f"🎬 تجهيز نسخة تيك توك بخلفية فيديو متحركة ({chosen_bg.name}) + الصوت ({tt_audio.name})...")
+        logger.info(
+            f"🎬 تجهيز نسخة تيك توك ({tt_duration:.0f} ثوانٍ | خلفية {chosen_bg.name} | مقارنة الأمس={'نعم' if prev_prices else 'لا'})..."
+        )
         assembler.assemble_tiktok_video_with_bg(
             frame_gen=frame_gen,
             prices=prices,
@@ -743,7 +870,9 @@ def prepare_tiktok_video(
             output_path=tt_out,
             bg_video_path=chosen_bg,
             country_offset=country_offset,
-            duration=duration,
+            duration=tt_duration,
+            country_code=country_code,
+            prev_prices=prev_prices,
         )
         return tt_out, caption
 
@@ -836,7 +965,8 @@ class FixedGoldShortsEngine:
                 tt_method = (tt_cfg.get("upload_method") or "playwright").strip().lower()
                 if tt_method == "buffer":
                     buf_uploader = BufferTikTokUploader()
-                    tt_url = buf_uploader.upload_video(tt_video_path, description=tt_desc)
+                    thumb_ms = int(tt_cfg.get("thumbnail_offset_ms", 4500))
+                    tt_url = buf_uploader.upload_video(tt_video_path, description=tt_desc, thumbnail_offset_ms=thumb_ms)
                 else:
                     tt_uploader = TikTokUploader(SCRIPT_DIR)
                     tt_url = tt_uploader.upload_video(tt_video_path, description=tt_desc)
@@ -916,7 +1046,7 @@ class FixedGoldShortsEngine:
             final_path = output_file
 
         pub_res = self.publish_video(final_path, prices, platform=platform, yt_url=yt_url, tg_msg_id=tg_msg_id)
-        return {"video": str(final_path), "results": pub_res}
+        return {"video": str(final_path), "results": pub_res, "prices": prices}
 
 
 if __name__ == "__main__":
