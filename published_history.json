@@ -260,6 +260,15 @@
     "turkey": true,
     "turkey_time": "12:04:30",
     "turkey_tt_time": "12:04:30",
-    "turkey_tt_url": "https://www.tiktok.com/@as3aral"
+    "turkey_tt_url": "https://www.tiktok.com/@as3aral",
+    "syria_yt": true,
+    "syria_yt_time": "13:01:48",
+    "syria_yt_url": "https://youtube.com/shorts/4UYezqSv-hw",
+    "syria_tg_msg_id": 19,
+    "syria_tt": true,
+    "syria": true,
+    "syria_time": "13:03:07",
+    "syria_tt_time": "13:03:07",
+    "syria_tt_url": "https://tiktok.com/@as3aral/video/7711675663803010305"
   }
 }
