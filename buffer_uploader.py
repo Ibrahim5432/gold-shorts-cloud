@@ -130,7 +130,7 @@ class BufferTikTokUploader:
         self,
         video_path: Path,
         description: str,
-        thumbnail_offset_ms: int = 2000,
+        thumbnail_offset_ms: int = 4500,
     ) -> str | None:
         """إرسال الفيديو للنشر الفوري على تيك توك عبر Buffer Official GraphQL API"""
         if not video_path.exists():
@@ -206,7 +206,7 @@ class BufferTikTokUploader:
           }
         }
         """
-        for _ in range(20):
+        for _ in range(30):
             time.sleep(6)
             try:
                 rp = self._gql(q_poll, variables={"input": {"id": pid}}, timeout=20)
