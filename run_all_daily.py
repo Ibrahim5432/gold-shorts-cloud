@@ -122,6 +122,11 @@ def main():
                     tg_msg_id=today_status.get("turkey_tg_msg_id"),
                 )
                 pub = res.get("results", {}) if isinstance(res, dict) else {}
+                tr_prices = res.get("prices") if isinstance(res, dict) else None
+                if isinstance(tr_prices, dict) and tr_prices.get("21k"):
+                    today_status["turkey_prices"] = {
+                        k: tr_prices.get(k) for k in ("date", "24k", "22k", "21k", "18k", "ounce_usd") if k in tr_prices
+                    }
                 if want_tr_yt and pub.get("youtube"):
                     today_status["turkey_yt"] = True
                     today_status["turkey_yt_time"] = datetime.now().strftime("%H:%M:%S")
@@ -162,6 +167,11 @@ def main():
                     tg_msg_id=today_status.get("syria_tg_msg_id"),
                 )
                 pub = res.get("results", {}) if isinstance(res, dict) else {}
+                sy_prices = res.get("prices") if isinstance(res, dict) else None
+                if isinstance(sy_prices, dict) and sy_prices.get("21k"):
+                    today_status["syria_prices"] = {
+                        k: sy_prices.get(k) for k in ("date", "24k", "22k", "21k", "18k", "ounce_usd") if k in sy_prices
+                    }
                 if want_sy_yt and pub.get("youtube"):
                     today_status["syria_yt"] = True
                     today_status["syria_yt_time"] = datetime.now().strftime("%H:%M:%S")
