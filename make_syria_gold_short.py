@@ -382,7 +382,8 @@ class SyriaGoldShortsEngine:
                 tt_method = (tt_cfg.get("upload_method") or "playwright").strip().lower()
                 if tt_method == "buffer":
                     buf_uploader = BufferTikTokUploader()
-                    tt_url = buf_uploader.upload_video(tt_video_path, description=tt_desc)
+                    thumb_ms = int(tt_cfg.get("thumbnail_offset_ms", 4500))
+                    tt_url = buf_uploader.upload_video(tt_video_path, description=tt_desc, thumbnail_offset_ms=thumb_ms)
                 else:
                     tt_uploader = TikTokUploader(SCRIPT_DIR)
                     tt_url = tt_uploader.upload_video(tt_video_path, description=tt_desc)
@@ -475,7 +476,7 @@ class SyriaGoldShortsEngine:
                         if not skip_publish
                         else {}
                     )
-                    return {"video": str(output_file), "results": pub_res}
+                    return {"video": str(output_file), "results": pub_res, "prices": prices}
 
             audio_path = self.audio_mgr.get_audio_path(self.duration, TEMP_DIR)
             total_frames = int(self.fps * self.duration)
@@ -492,7 +493,7 @@ class SyriaGoldShortsEngine:
             if not skip_publish
             else {}
         )
-        return {"video": str(final_path), "results": pub_res}
+        return {"video": str(final_path), "results": pub_res, "prices": prices}
 
 
 if __name__ == "__main__":
