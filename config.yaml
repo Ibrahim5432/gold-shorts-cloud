@@ -5,7 +5,8 @@
 
 # --- مصادر البيانات الحية ---
 data_sources:
-  turkey_gold_url: "https://turkeygoldprice.com/"
+  turkey_gold_url: "https://canlidoviz.com/altin-fiyatlari/kapali-carsi"
+  turkey_fallback_url: "https://turkeygoldprice.com/"
 
 # --- إعدادات الفيديو ---
 video:
