@@ -304,6 +304,23 @@
     "turkey": true,
     "turkey_time": "12:02:53",
     "turkey_tt_time": "12:02:53",
-    "turkey_tt_url": "https://tiktok.com/@as3aral/video/7712031729858448641"
+    "turkey_tt_url": "https://tiktok.com/@as3aral/video/7712031729858448641",
+    "syria_prices": {
+      "date": "2026/11/25",
+      "24k": 17220.0,
+      "22k": 15773.0,
+      "21k": 15067.0,
+      "18k": 12915.0,
+      "ounce_usd": 3529.43
+    },
+    "syria_yt": true,
+    "syria_yt_time": "13:01:38",
+    "syria_yt_url": "https://youtube.com/shorts/qOP3ir0x244",
+    "syria_tg_msg_id": 21,
+    "syria_tt": true,
+    "syria": true,
+    "syria_time": "13:03:19",
+    "syria_tt_time": "13:03:19",
+    "syria_tt_url": "https://tiktok.com/@as3aral/video/7712047149457886465"
   }
 }
