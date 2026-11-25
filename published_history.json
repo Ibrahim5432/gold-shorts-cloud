@@ -286,5 +286,24 @@
       "18k": 13306.0,
       "ounce_usd": 3624.44
     }
+  },
+  "2026-11-25": {
+    "turkey_prices": {
+      "date": "2026/11/25",
+      "24k": 5756.26,
+      "22k": 5276.57,
+      "21k": 5036.73,
+      "18k": 4317.19,
+      "ounce_usd": 3529.55
+    },
+    "turkey_yt": true,
+    "turkey_yt_time": "12:01:37",
+    "turkey_yt_url": "https://youtube.com/shorts/9gWHuHHUKAw",
+    "turkey_tg_msg_id": 20,
+    "turkey_tt": true,
+    "turkey": true,
+    "turkey_time": "12:02:53",
+    "turkey_tt_time": "12:02:53",
+    "turkey_tt_url": "https://tiktok.com/@as3aral/video/7712031729858448641"
   }
 }
