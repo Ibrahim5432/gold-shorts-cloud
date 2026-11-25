@@ -125,7 +125,7 @@ def main():
                 tr_prices = res.get("prices") if isinstance(res, dict) else None
                 if isinstance(tr_prices, dict) and tr_prices.get("21k"):
                     today_status["turkey_prices"] = {
-                        k: tr_prices.get(k) for k in ("date", "24k", "22k", "21k", "18k", "ounce_usd") if k in tr_prices
+                        k: tr_prices.get(k) for k in ("date", "24k", "22k", "21k", "18k", "ounce_usd", "source") if tr_prices.get(k) is not None
                     }
                 if want_tr_yt and pub.get("youtube"):
                     today_status["turkey_yt"] = True
@@ -170,7 +170,7 @@ def main():
                 sy_prices = res.get("prices") if isinstance(res, dict) else None
                 if isinstance(sy_prices, dict) and sy_prices.get("21k"):
                     today_status["syria_prices"] = {
-                        k: sy_prices.get(k) for k in ("date", "24k", "22k", "21k", "18k", "ounce_usd") if k in sy_prices
+                        k: sy_prices.get(k) for k in ("date", "24k", "22k", "21k", "18k", "ounce_usd", "source") if sy_prices.get(k) is not None
                     }
                 if want_sy_yt and pub.get("youtube"):
                     today_status["syria_yt"] = True
