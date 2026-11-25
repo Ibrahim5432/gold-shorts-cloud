@@ -100,7 +100,7 @@ def ar(text: str) -> str:
 
 
 # ============================================
-# جلب الأسعار المباشرة من turkeygoldprice.com
+# جلب الأسعار المباشرة لسوق تركيا (سعر المبيع الفعلي)
 # ============================================
 
 class GoldPriceFetcher:
@@ -108,74 +108,253 @@ class GoldPriceFetcher:
         self.config = config
         self.session = requests.Session()
         self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept-Language": "ar,en;q=0.9",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Accept-Language": "tr-TR,tr;q=0.9,ar;q=0.8,en;q=0.7",
         })
 
-    def fetch_turkey_prices(self) -> dict:
-        url = self.config.get("data_sources", {}).get("turkey_gold_url", "https://turkeygoldprice.com/")
-        logger.info(f"جلب الأسعار الحية من: {url}")
+    @staticmethod
+    def _make_soup(html_text: str) -> BeautifulSoup:
+        try:
+            return BeautifulSoup(html_text, "lxml")
+        except Exception:
+            return BeautifulSoup(html_text, "html.parser")
+
+    def _fetch_kapalicarsi_canlidoviz(self, url: str) -> dict:
+        """جلب سعر المبيع (Satış) المباشر من جدول السوق التركي في canlidoviz"""
+        prices = {}
+        resp = self.session.get(url, timeout=20)
+        resp.raise_for_status()
+        resp.encoding = "utf-8"
+        soup = self._make_soup(resp.text)
+
+        for table in soup.find_all("table"):
+            rows = table.find_all("tr")
+            if not rows:
+                continue
+            headers = [c.get_text(" ", strip=True).upper() for c in rows[0].find_all(["th", "td"])]
+            header_joined = " ".join(headers)
+            has_satis = ("SATIŞ" in header_joined) or ("SATIS" in header_joined)
+
+            # تحديد عمود الإغلاق السابق (KAPANIŞ) إن وجد للاستعانة به عند تغيير المصدر لأول يوم
+            kapanis_idx = None
+            for i, h in enumerate(headers):
+                if "KAPANIŞ" in h or "KAPANIS" in h:
+                    kapanis_idx = i
+                    break
+
+            for row in rows[1:]:
+                cols = [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
+                if len(cols) < 2:
+                    continue
+                name = cols[0].strip().lower()
+
+                if has_satis and len(cols) >= 3 and "%" not in cols[2]:
+                    satis_val = self._parse_tr_price(cols[2])
+                    if name == "gram altın" and satis_val and 1000 < satis_val < 50000 and "24k" not in prices:
+                        prices["24k"] = round(satis_val, 2)
+                        if kapanis_idx is not None and kapanis_idx < len(cols):
+                            kap_val = self._parse_tr_price(cols[kapanis_idx])
+                            if kap_val and 1000 < kap_val < 50000:
+                                prices["prev_21k"] = round(kap_val * 21.0 / 24.0, 2)
+                    elif name == "22 ayar altın" and satis_val and 1000 < satis_val < 50000 and "22k" not in prices:
+                        prices["22k"] = round(satis_val, 2)
+
+                if name == "ons altın" and "%" not in cols[1]:
+                    ons_val = self._parse_tr_price(cols[1])
+                    if ons_val and 1500 < ons_val < 15000 and "ounce_usd" not in prices:
+                        prices["ounce_usd"] = round(ons_val, 2)
+
+        if "24k" not in prices:
+            raise ValueError("لم يتم العثور على سعر مبيع Gram Altın في جدول canlidoviz")
+
+        p24 = prices["24k"]
+        if "22k" not in prices or not (0.85 * p24 < prices["22k"] < p24):
+            prices["22k"] = round(p24 * 22.0 / 24.0, 2)
+        prices["21k"] = round(p24 * 21.0 / 24.0, 2)
+        prices["18k"] = round(p24 * 18.0 / 24.0, 2)
+        prices["source"] = "kapalicarsi"
+        return prices
+
+    def _fetch_kapalicarsi_doviz(self) -> dict:
+        """مصدر احتياطي لسعر المبيع (Satış) من altin.doviz.com (Kapalıçarşı / Harem)"""
         prices = {}
 
+        # 1. عيار 24 (Satış) من صفحة gram-altin
+        r_gram = self.session.get("https://altin.doviz.com/gram-altin", timeout=20)
+        r_gram.raise_for_status()
+        sp_gram = self._make_soup(r_gram.text)
+        harem_24 = None
+        for tr in sp_gram.select("table tr"):
+            cols = [c.get_text(" ", strip=True) for c in tr.find_all(["td", "th"])]
+            if len(cols) >= 3:
+                bank = cols[0].strip().lower()
+                val = self._parse_tr_price(cols[2])
+                if val and 1000 < val < 50000:
+                    if "kapalıçarşı" in bank or "kapalicarsi" in bank:
+                        prices["24k"] = round(val, 2)
+                        break
+                    if "harem" in bank and not harem_24:
+                        harem_24 = round(val, 2)
+        if "24k" not in prices and harem_24:
+            prices["24k"] = harem_24
+
+        # 2. عيار 22 (Satış Harem) من صفحة 22-ayar-bilezik
         try:
-            resp = self.session.get(url, timeout=20)
-            resp.raise_for_status()
-            resp.encoding = "utf-8"
-            try:
-                soup = BeautifulSoup(resp.text, "lxml")
-            except Exception:
-                soup = BeautifulSoup(resp.text, "html.parser")
+            r_22 = self.session.get("https://altin.doviz.com/22-ayar-bilezik", timeout=15)
+            r_22.raise_for_status()
+            sp_22 = self._make_soup(r_22.text)
+            for tr in sp_22.select("table tr"):
+                cols = [c.get_text(" ", strip=True) for c in tr.find_all(["td", "th"])]
+                if len(cols) >= 3 and "harem" in cols[0].strip().lower():
+                    val22 = self._parse_tr_price(cols[2])
+                    if val22 and 1000 < val22 < 50000:
+                        prices["22k"] = round(val22, 2)
+                        break
+        except Exception:
+            pass
 
-            # 1. البحث عن سعر الأونصة بالدولار من العنوان الرئيسي
-            page_text = soup.get_text()
-            m_ounce = re.search(r'أونصة الذهب اليوم\s*([\d,]+(?:\.\d+)?)\s*دولار', page_text)
-            if m_ounce:
-                val = self._parse_price(m_ounce.group(1))
-                if val:
-                    prices["ounce_usd"] = val
+        # 3. الأونصة بالدولار من الصفحة الرئيسية لـ altin.doviz.com
+        try:
+            r_main = self.session.get("https://altin.doviz.com/", timeout=15)
+            r_main.raise_for_status()
+            sp_main = self._make_soup(r_main.text)
+            for tr in sp_main.select("table tr"):
+                cols = [c.get_text(" ", strip=True) for c in tr.find_all(["td", "th"])]
+                if len(cols) >= 3 and "ons altın" in cols[0].strip().lower():
+                    val_ons = self._parse_tr_price(cols[2])
+                    if val_ons and 1500 < val_ons < 15000:
+                        prices["ounce_usd"] = round(val_ons, 2)
+                        break
+        except Exception:
+            pass
 
-            # 2. البحث في جداول divTableRow
-            rows = soup.find_all("div", class_="divTableRow")
-            for row in rows:
-                cells = row.find_all("div", class_="divTableCell")
-                if len(cells) >= 2:
-                    label = cells[0].get_text(strip=True)
-                    price_try_text = cells[1].get_text(strip=True)
+        if "24k" not in prices:
+            raise ValueError("لم يتم العثور على سعر مبيع Kapalıçarşı في altin.doviz.com")
 
-                    for karat in ["24", "22", "21", "18", "14"]:
-                        if f"عيار {karat}" in label or f"عيار{karat}" in label:
-                            val = self._parse_price(price_try_text)
-                            if val and f"{karat}k" not in prices:
-                                prices[f"{karat}k"] = val
+        p24 = prices["24k"]
+        if "22k" not in prices or not (0.85 * p24 < prices["22k"] < p24):
+            prices["22k"] = round(p24 * 22.0 / 24.0, 2)
+        prices["21k"] = round(p24 * 21.0 / 24.0, 2)
+        prices["18k"] = round(p24 * 18.0 / 24.0, 2)
+        prices["source"] = "kapalicarsi"
+        return prices
 
-                    if ("أونصة" in label or "اونصة" in label):
-                        val_try = self._parse_price(price_try_text)
-                        if val_try and "ounce_try" not in prices:
-                            prices["ounce_try"] = val_try
-                        if len(cells) >= 3:
-                            val_usd = self._parse_price(cells[2].get_text(strip=True))
-                            if val_usd and "ounce_usd" not in prices:
-                                prices["ounce_usd"] = val_usd
+    def _fetch_turkeygoldprice_spot(self, url: str) -> dict:
+        """مصدر احتياطي ثالث في حال تعطل المصادر التركية المباشرة"""
+        prices = {}
+        resp = self.session.get(url, timeout=20)
+        resp.raise_for_status()
+        resp.encoding = "utf-8"
+        soup = self._make_soup(resp.text)
 
-            logger.info(f"تم جلب الأسعار بنجاح: {prices}")
+        page_text = soup.get_text()
+        m_ounce = re.search(r'أونصة الذهب اليوم\s*([\d,]+(?:\.\d+)?)\s*دولار', page_text)
+        if m_ounce:
+            val = self._parse_price(m_ounce.group(1))
+            if val and 1500 < val < 15000:
+                prices["ounce_usd"] = val
+
+        for row in soup.find_all("div", class_="divTableRow"):
+            cells = row.find_all("div", class_="divTableCell")
+            if len(cells) >= 2:
+                label = cells[0].get_text(strip=True)
+                price_try_text = cells[1].get_text(strip=True)
+                for karat in ["24", "22", "21", "18", "14"]:
+                    if f"عيار {karat}" in label or f"عيار{karat}" in label:
+                        val = self._parse_price(price_try_text)
+                        if val and val > 500 and f"{karat}k" not in prices:
+                            prices[f"{karat}k"] = val
+                if ("أونصة" in label or "اونصة" in label) and "بيع" in label:
+                    val_try = self._parse_price(price_try_text)
+                    if val_try and val_try > 10000 and "ounce_try" not in prices:
+                        prices["ounce_try"] = val_try
+                    if len(cells) >= 3:
+                        val_usd = self._parse_price(cells[2].get_text(strip=True))
+                        if val_usd and 1500 < val_usd < 15000 and "ounce_usd" not in prices:
+                            prices["ounce_usd"] = val_usd
+
+        if "24k" not in prices:
+            raise ValueError("تعذر استخراج أسعار تركيا من turkeygoldprice")
+        prices["source"] = "spot"
+        return prices
+
+    def fetch_turkey_prices(self) -> dict:
+        ds_cfg = self.config.get("data_sources", {})
+        primary_url = ds_cfg.get("turkey_gold_url", "https://canlidoviz.com/altin-fiyatlari/kapali-carsi")
+        fallback_spot_url = ds_cfg.get("turkey_fallback_url", "https://turkeygoldprice.com/")
+        prices = {}
+
+        # 1. المصدر الرئيسي: سعر المبيع الفعلي للسوق التركي (canlidoviz Kapalıçarşı)
+        try:
+            logger.info(f"جلب أسعار الذهب الحية في تركيا (سعر المبيع) من: {primary_url}")
+            if "canlidoviz" in primary_url:
+                prices = self._fetch_kapalicarsi_canlidoviz(primary_url)
+            else:
+                prices = self._fetch_turkeygoldprice_spot(primary_url)
+            logger.info(f"✅ تم جلب الأسعار بنجاح من المصدر الأول: {prices}")
         except Exception as e:
-            logger.error(f"خطأ في جلب الأسعار الحية: {e}")
+            logger.warning(f"⚠️ تعذر الجلب من المصدر الأول ({primary_url}): {e}")
 
-        # قيم احتياطية
+        # 2. المصدر الاحتياطي الأول: altin.doviz.com (سعر المبيع Kapalıçarşı / Harem)
+        if not prices.get("24k") or not prices.get("ounce_usd"):
+            try:
+                logger.info("جلب أسعار المبيع الاحتياطية من: altin.doviz.com")
+                dov_prices = self._fetch_kapalicarsi_doviz()
+                for k, v in dov_prices.items():
+                    if k not in prices or not prices[k]:
+                        prices[k] = v
+                logger.info(f"✅ تم استكمال الأسعار من altin.doviz.com: {prices}")
+            except Exception as e:
+                logger.warning(f"⚠️ تعذر الجلب من altin.doviz.com: {e}")
+
+        # 3. المصدر الاحتياطي الثاني: turkeygoldprice.com
+        if not prices.get("24k") or not prices.get("ounce_usd"):
+            try:
+                logger.info(f"جلب الأسعار الاحتياطية من: {fallback_spot_url}")
+                sp_prices = self._fetch_turkeygoldprice_spot(fallback_spot_url)
+                for k, v in sp_prices.items():
+                    if k not in prices or not prices[k]:
+                        prices[k] = v
+            except Exception as e:
+                logger.error(f"خطأ في جلب الأسعار الاحتياطية: {e}")
+
+        # قيم احتياطية أخيرة في حال انقطاع الإنترنت
         defaults = {
-            "24k": 6398.29,
-            "22k": 5865.10,
-            "21k": 5598.50,
-            "18k": 4798.72,
-            "ounce_try": 199008.51,
-            "ounce_usd": 3995.85,
+            "24k": 6023.11,
+            "22k": 5619.99,
+            "21k": 5270.22,
+            "18k": 4517.33,
+            "ounce_usd": 3450.00,
         }
         for k, v in defaults.items():
             if k not in prices or not prices[k]:
                 prices[k] = v
 
+        if "ounce_try" not in prices or not prices["ounce_try"]:
+            prices["ounce_try"] = round(prices["24k"] * 31.1034768, 2)
+
         prices["date"] = date.today().strftime("%Y/%m/%d")
         return prices
+
+    @staticmethod
+    def _parse_tr_price(text: str):
+        """تحليل الأرقام بالصيغة التركية مثل 6.023,11 أو $3.450,71 إلى float"""
+        if not text:
+            return None
+        cleaned = re.sub(r'[^\d.,]', '', text).strip(".,")
+        if not cleaned:
+            return None
+        if "," in cleaned:
+            # الصيغة التركية: النقطة للآلاف والفاصلة للكسور العشرية
+            normalized = cleaned.replace(".", "").replace(",", ".")
+        elif cleaned.count(".") > 1 or re.search(r'\.\d{3}$', cleaned):
+            normalized = cleaned.replace(".", "")
+        else:
+            normalized = cleaned
+        try:
+            return float(normalized)
+        except ValueError:
+            return None
 
     @staticmethod
     def _parse_price(text: str):
@@ -359,8 +538,12 @@ class PerfectFrameGenerator:
         return "أسعار الذهب في تركيا"
 
 
-def load_previous_day_prices(country_code: str, today_key: str = None) -> dict | None:
-    """قراءة أسعار آخر يوم سابق من published_history.json لحساب الفرق اليومي (▲ / ▼)"""
+def load_previous_day_prices(
+    country_code: str,
+    today_key: str = None,
+    expected_source: str = None,
+) -> dict | None:
+    """قراءة أسعار آخر يوم سابق من published_history.json (بنفس المصدر) لحساب الفرق اليومي (▲ / ▼)"""
     hist_file = SCRIPT_DIR / "published_history.json"
     if not hist_file.exists():
         return None
@@ -375,6 +558,11 @@ def load_previous_day_prices(country_code: str, today_key: str = None) -> dict |
             entry = hist.get(d_key) or {}
             p = entry.get(price_key)
             if isinstance(p, dict) and p.get("21k"):
+                if expected_source and p.get("source") and p.get("source") != expected_source:
+                    continue
+                if expected_source == "kapalicarsi" and not p.get("source"):
+                    # السجلات القديمة غير الموسومة كانت من المصدر العالمي (Spot) — نتجنب المقارنة بين مصدرين مختلفين
+                    continue
                 return p
     return None
 
@@ -848,7 +1036,9 @@ def prepare_tiktok_video(
     """تجهيز نسخة فيديو تيك توك (8 ثوانٍ بتدرّج ذكي + شارة الفرق عن الأمس + وصف تشويقي تفاعلي) بدون المساس بيوتيوب"""
     tt_cfg = config.get("tiktok", {})
     tt_duration = float(tt_cfg.get("duration", 8.0))
-    prev_prices = load_previous_day_prices(country_code)
+    prev_prices = load_previous_day_prices(country_code, expected_source=prices.get("source"))
+    if not prev_prices and prices.get("prev_21k"):
+        prev_prices = {"21k": prices["prev_21k"]}
     tt_audio = audio_mgr.get_tiktok_audio_path() or audio_mgr.get_audio_path(tt_duration, TEMP_DIR)
     tt_out = base_video_path.with_name(f"{base_video_path.stem}_tiktok.mp4")
     caption = build_tiktok_caption(country_code, prices, prev_prices=prev_prices)
