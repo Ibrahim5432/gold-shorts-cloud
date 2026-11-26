@@ -324,5 +324,25 @@
     "syria_time": "13:03:19",
     "syria_tt_time": "13:03:19",
     "syria_tt_url": "https://tiktok.com/@as3aral/video/7712047149457886465"
+  },
+  "2026-11-26": {
+    "turkey_prices": {
+      "date": "2026/11/26",
+      "24k": 6143.21,
+      "22k": 5731.5,
+      "21k": 5375.31,
+      "18k": 4607.41,
+      "ounce_usd": 3571.04,
+      "source": "kapalicarsi"
+    },
+    "turkey_yt": true,
+    "turkey_yt_time": "12:01:46",
+    "turkey_yt_url": "https://youtube.com/shorts/5ytDM8Di7xI",
+    "turkey_tg_msg_id": 22,
+    "turkey_tt": true,
+    "turkey": true,
+    "turkey_time": "12:03:12",
+    "turkey_tt_time": "12:03:12",
+    "turkey_tt_url": "https://tiktok.com/@as3aral/video/7712402895047527700"
   }
 }
